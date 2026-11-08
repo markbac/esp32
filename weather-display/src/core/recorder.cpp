@@ -24,9 +24,9 @@ HistoryRecord build(time_t now, const Recorder::DeviceBattery &battery) {
   HistoryRecord r{};
   r.time = static_cast<uint32_t>(now);
 
-  float tRain = 0, tGust = 0;
+  float tRain = 0, tGust = 0, tRate = 0;
   uint16_t tStrikes = 0;
-  Tempest::takeWindow(tRain, tGust, tStrikes);
+  Tempest::takeWindow(tRain, tGust, tStrikes, tRate);
 
   DataService::Guard g;
   const WeatherData &wx = DataService::weather();
@@ -69,6 +69,12 @@ HistoryRecord build(time_t now, const Recorder::DeviceBattery &battery) {
     r.tSolar = scaled<uint16_t>(t.obs.solar, 1, 0, 65535);
     r.tStrikes = static_cast<uint8_t>(min<uint16_t>(tStrikes, 255));
     r.tBattMv = scaled<uint16_t>(t.obs.batteryV, 1000, 0, 65535);
+    r.tRate10 = scaled<uint16_t>(tRate, 10, 0, 65535);
+  }
+  const CarbonData &ci = DataService::carbon();
+  if (ci.valid) {
+    r.flags |= HF_CARBON;
+    r.carbon = ci.nowGPerKwh;
   }
   r.aircraft = static_cast<uint8_t>(min<uint16_t>(DataService::flights().total, 255));
 

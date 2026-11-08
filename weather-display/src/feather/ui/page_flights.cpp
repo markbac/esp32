@@ -39,6 +39,27 @@ void scope(const FlightList &fl) {
   snprintf(buf, sizeof(buf), "%dnm", FLIGHT_RADIUS_NM);
   text(buf, 1, 120, 1, Theme::GREY);
 
+  // Trails: previous positions (one per poll), drawn under the aircraft.
+  auto toXY = [&](float dist, float bearing, int &x, int &y) {
+    const float r = min(dist, static_cast<float>(FLIGHT_RADIUS_NM)) / FLIGHT_RADIUS_NM * SCOPE_R;
+    x = SCOPE_CX + lroundf(sinf(bearing * DEG_TO_RAD) * r);
+    y = SCOPE_CY - lroundf(cosf(bearing * DEG_TO_RAD) * r);
+  };
+  for (int i = 0; i < fl.count; ++i) {
+    const Aircraft &a = fl.items[i];
+    if (a.onGround || a.trailCount == 0) continue;
+    int px, py;
+    toXY(a.trailDist[0], a.trailBearing[0], px, py);
+    for (int k = 1; k <= a.trailCount; ++k) {
+      int x, y;
+      if (k < a.trailCount) toXY(a.trailDist[k], a.trailBearing[k], x, y);
+      else toXY(a.distNm, a.bearing, x, y);
+      canvas.drawLine(px, py, x, y, i == fl.nearest ? 0x8400 /* dark yellow */ : Theme::DKGREY);
+      px = x;
+      py = y;
+    }
+  }
+
   // Others first, nearest last so it draws on top.
   for (int pass = 0; pass < 2; ++pass) {
     for (int i = 0; i < fl.count; ++i) {

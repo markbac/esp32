@@ -32,8 +32,10 @@ using BodyHandler = std::function<bool(HTTPClient &http)>;
  *                  can be stream-parsed. false: HTTP/1.1 for servers that
  *                  reject 1.0 (answer 426); read the body with getString(),
  *                  which decodes chunked transfer encoding.
+ * @param  userAgent  Optional User-Agent override (some APIs require a contact URL).
  * @return true if connected, status 200 and @p handler returned true.
  */
-bool get(const String &url, const char *tag, const BodyHandler &handler, bool http10 = true);
+bool get(const String &url, const char *tag, const BodyHandler &handler, bool http10 = true,
+         const char *userAgent = nullptr);
 
 }  // namespace Https

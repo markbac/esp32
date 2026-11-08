@@ -22,10 +22,11 @@ enum class Page : uint8_t {
   Forecast,  ///< 24-hour graph and 7-day forecast.
   Radar,     ///< Animated radar map + 2-hour rain nowcast.
   Air,       ///< Air quality, pollutants, UV, pollen.
+  Grid,      ///< Electricity carbon intensity, generation mix, 48 h forecast.
   Sky,       ///< Sun arc, day length, moon phase.
-  Alerts,    ///< Met Office warnings, AuroraWatch, lightning.
-  Flights,   ///< Tap-to-select aircraft scope + flight details.
-  History,   ///< On-device charts from the history log.
+  Alerts,    ///< Met Office warnings, frost/ice risk, AuroraWatch, lightning.
+  Flights,   ///< Tap-to-select aircraft scope with trails + photo and details.
+  History,   ///< Today/yesterday/records summary and charts from the 90-day log.
   System,    ///< Network, Tempest hub/sensor, device and feed status.
   Count      ///< Number of pages (not a page).
 };

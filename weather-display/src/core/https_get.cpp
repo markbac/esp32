@@ -14,7 +14,7 @@ constexpr uint16_t HTTP_TIMEOUT_MS = 10000;  ///< Connect + read timeout.
 
 namespace Https {
 
-bool get(const String &url, const char *tag, const BodyHandler &handler, bool http10) {
+bool get(const String &url, const char *tag, const BodyHandler &handler, bool http10, const char *userAgent) {
   if (!Net::connected()) return false;
 
   WiFiClientSecure client;
@@ -22,7 +22,7 @@ bool get(const String &url, const char *tag, const BodyHandler &handler, bool ht
   HTTPClient http;
   http.useHTTP10(http10);
   http.setTimeout(HTTP_TIMEOUT_MS);
-  http.setUserAgent("ESP32-WeatherDisplay/1.0");
+  http.setUserAgent(userAgent ? userAgent : "ESP32-WeatherDisplay/1.0");
 
   if (!http.begin(client, url)) {
     Serial.printf("[%s] bad URL\n", tag);

@@ -64,6 +64,8 @@ static const char WEB_PAGE[] = R"HTML(<!doctype html>
       <button data-days="1">24 h</button>
       <button data-days="3">3 days</button>
       <button data-days="7" class="on">7 days</button>
+      <button data-days="30">30 days</button>
+      <button data-days="90">90 days</button>
       <a class="btn" id="csv" href="/history.csv?days=7" download>Download CSV</a>
       <span id="count" style="color:var(--muted);font-size:13px"></span>
     </div>
@@ -92,6 +94,7 @@ async function loadNow() {
       pill('Wind', d.wind !== undefined ? `${Math.round(d.wind)} mph ${d.windDir}` : undefined) +
       pill('AQI', d.aqi !== undefined ? `${d.aqi} ${d.aqiBand}` : undefined) +
       pill('Warnings', d.warnings) + pill('Aurora', d.aurora) +
+      pill('Grid', d.carbon !== undefined ? `${d.carbon} g/kWh ${d.carbonIndex}` : undefined) +
       pill('Aircraft', d.aircraft) + (d.battery !== undefined ? pill('Battery', d.battery + '%') : '') +
       pill('Wi-Fi', d.rssi + ' dBm') + pill('Up', Math.floor(d.uptimeMin / 60) + 'h' + (d.uptimeMin % 60) + 'm');
     document.getElementById('count').textContent = `${d.historyCount} records, every ${d.historyIntervalMin} min`;
@@ -150,6 +153,8 @@ const AURORA_COLORS = ['#888', '#3fb950', '#e3b341', '#f0883e', '#f85149'];
 const CHARTS = [
   { title: 'Temperature (°C)', series: [['t_temp_c', 'Tempest', '#ffa657'], ['temp_c', 'Open-Meteo', '#8b949e', [4, 3]]] },
   { title: 'Rain (mm per 15 min)', type: 'bar', series: [['t_rain_mm', 'Tempest', '#58a6ff'], ['rain_mm', 'Open-Meteo', '#30363d']] },
+  { title: 'Peak rain rate (mm/h)', type: 'bar', series: [['t_rain_rate_mmh', 'Tempest', '#79c0ff']] },
+  { title: 'Grid carbon intensity (gCO2/kWh)', series: [['carbon_g', 'North West England', '#7ee787']] },
   { title: 'Wind (mph)', series: [['t_wind_mph', 'Tempest avg', '#a5d6ff'], ['t_gust_mph', 'Tempest gust', '#d2a8ff', [4, 3]], ['wind_mph', 'Open-Meteo', '#8b949e', [2, 3]]] },
   { title: 'Pressure (hPa)', series: [['t_pressure_hpa', 'Tempest', '#7ee787'], ['pressure_hpa', 'Open-Meteo', '#8b949e', [4, 3]]] },
   { title: 'Humidity (%)', series: [['t_humidity_pct', 'Tempest', '#56d4dd'], ['humidity_pct', 'Open-Meteo', '#8b949e', [4, 3]]] },

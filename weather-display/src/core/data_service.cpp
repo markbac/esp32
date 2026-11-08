@@ -24,6 +24,7 @@ WarningList warningsShared;
 AuroraData auroraShared;
 FlightList flightsShared;
 TempestData tempestShared;
+CarbonData carbonShared;
 RadarLoop radarShared;              ///< Frames shown by the UI and web server.
 uint16_t *radarSpare = nullptr;     ///< Buffer the worker composes the next frame into.
 
@@ -87,8 +88,15 @@ bool updateRadar() {
     radarShared.fetchedAtMs = millis();
     DataService::unlock();
     ++added;
+    Flights::resolvePending();  // Keep tap-driven route/photo lookups responsive during a long first load.
   }
-  Serial.printf("[radar] %u new frame(s), %u in loop\n", added, radarShared.count);
+  const RadarEta eta = Radar::estimate(radarShared);  // Reads frames only; this task owns them.
+  DataService::lock();
+  radarShared.eta = eta;
+  DataService::unlock();
+  Serial.printf("[radar] %u new frame(s), %u in loop; eta %s here=%d approaching=%d %d min %.0f km/h from %d, cover %.0f%%\n",
+                added, radarShared.count, eta.valid ? "ok" : "n/a", eta.rainingHere, eta.approaching, eta.minutes,
+                eta.speedKmh, eta.fromDeg, eta.coverage * 100);
   return radarShared.count > 0;
 }
 
@@ -110,6 +118,7 @@ Feed feeds[] = {
     {"air", [] { return update(airShared, AirQuality::fetch); }, AIR_INTERVAL_MS},
     {"warnings", [] { return update(warningsShared, Warnings::fetch); }, WARNINGS_INTERVAL_MS},
     {"aurora", [] { return update(auroraShared, Aurora::fetch); }, AURORA_INTERVAL_MS},
+    {"carbon", [] { return update(carbonShared, Carbon::fetch); }, CARBON_INTERVAL_MS},
     {"flights", [] { return update(flightsShared, Flights::fetch); }, FLIGHTS_INTERVAL_MS},
     {"routes", [] { return Flights::resolvePending(); }, 500, 0, 0, false, false, true},
     {"radar", updateRadar, RADAR_INTERVAL_MS},
@@ -159,6 +168,7 @@ const AuroraData &aurora() { return auroraShared; }
 const RadarLoop &radar() { return radarShared; }
 const FlightList &flights() { return flightsShared; }
 const TempestData &tempest() { return tempestShared; }
+const CarbonData &carbon() { return carbonShared; }
 TempestData &tempestMutable() { return tempestShared; }
 
 uint8_t feedStatus(FeedAge *out, uint8_t max) {

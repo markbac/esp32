@@ -50,6 +50,12 @@ constexpr float TEMPEST_ELEVATION_M = 63.0f;      ///< Station height above sea 
 constexpr uint32_t TEMPEST_STALE_MS = 5UL * 60UL * 1000UL;  ///< Treat Tempest data as stale after this.
 ///@}
 
+/** @name Electricity carbon intensity (carbonintensity.org.uk) */
+///@{
+constexpr int CARBON_REGION_ID = 3;            ///< 3 = North West England (see API docs for others).
+constexpr uint32_t CARBON_INTERVAL_MS = 30UL * 60UL * 1000UL;  ///< Half-hourly data.
+///@}
+
 /** @name Rain radar */
 ///@{
 constexpr int RADAR_ZOOM = 7;                  ///< Tile zoom (7 = ~0.7 km/px here; RainViewer's max).
@@ -79,7 +85,10 @@ constexpr uint8_t LED_MAX_BRIGHTNESS = 40;     ///< 0-255.
 #define HOSTNAME "weather"                     ///< mDNS name: http://weather.local
 #endif
 constexpr uint32_t HISTORY_INTERVAL_S = 15 * 60;  ///< One record per quarter hour.
-constexpr uint16_t HISTORY_CAPACITY = 8 * 96;     ///< 8 days of quarter-hours.
+#ifndef HISTORY_DAYS
+#define HISTORY_DAYS 8                            ///< Days kept (CrowPanel builds use 90).
+#endif
+constexpr uint16_t HISTORY_CAPACITY = HISTORY_DAYS * 96;  ///< Quarter-hour slots.
 constexpr uint8_t HISTORY_DEFAULT_DAYS = 7;       ///< Web charts default range.
 ///@}
 
@@ -96,7 +105,7 @@ constexpr uint32_t WEATHER_RETRY_MS        = 60UL * 1000UL;        ///< Retry pe
 constexpr uint32_t AIR_INTERVAL_MS         = 30UL * 60UL * 1000UL; ///< Air quality refresh (hourly model).
 constexpr uint32_t WARNINGS_INTERVAL_MS    = 15UL * 60UL * 1000UL; ///< Met Office warnings refresh.
 constexpr uint32_t RADAR_INTERVAL_MS       = 10UL * 60UL * 1000UL; ///< New radar frames every 10 min.
-constexpr uint32_t FLIGHTS_INTERVAL_MS     = 30UL * 1000UL;        ///< Aircraft positions.
+constexpr uint32_t FLIGHTS_INTERVAL_MS     = 20UL * 1000UL;        ///< Aircraft positions (also trail spacing).
 constexpr uint32_t AURORA_INTERVAL_MS      = 5UL * 60UL * 1000UL;  ///< AuroraWatch (server caches 3 min).
 constexpr uint32_t BATTERY_INTERVAL_MS     = 5UL * 1000UL;         ///< Fuel-gauge poll period.
 constexpr uint32_t PAGE_ROTATE_MS          = 12UL * 1000UL;        ///< Feather auto page change (0 = off).

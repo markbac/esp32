@@ -61,6 +61,8 @@ struct TempestData {
   float rapidMph = 0;            ///< Instantaneous wind speed.
   uint16_t rapidDir = 0;         ///< Instantaneous wind direction.
 
+  float rainRateMmH = 0;         ///< Rain rate from the last 1-minute observation, mm/h.
+  float maxRateTodayMmH = 0;     ///< Highest rain rate since local midnight, mm/h.
   float rainTodayMm = 0;         ///< Since local midnight.
   float rainHourMm = 0;          ///< Last 60 minutes.
   uint32_t rainStartTime = 0;    ///< Epoch of the last evt_precip (0 = none).
@@ -71,6 +73,7 @@ struct TempestData {
 
   float windowRainMm = 0;        ///< Rain since the last history record.
   float windowGustMph = 0;       ///< Highest gust since the last history record.
+  float windowRateMmH = 0;       ///< Highest rain rate since the last history record.
   uint16_t windowStrikes = 0;    ///< Strikes since the last history record.
 
   uint16_t trendCount = 0;                   ///< Valid 1-minute samples (oldest first).
@@ -116,8 +119,12 @@ void seedRainToday(float mm);
  * @param[out] rainMm   Rain since the last call.
  * @param[out] gustMph  Highest gust since the last call.
  * @param[out] strikes  Strikes since the last call.
+ * @param[out] maxRateMmH  Highest rain rate since the last call.
  */
-void takeWindow(float &rainMm, float &gustMph, uint16_t &strikes);
+void takeWindow(float &rainMm, float &gustMph, uint16_t &strikes, float &maxRateMmH);
+
+/** @brief Met Office style intensity for a rain rate: "None", "Light", "Moderate", "Heavy", "Violent". */
+const char *rainIntensity(float mmPerHour);
 
 /** @brief Name for an obs_st precipitation type. */
 const char *precipName(uint8_t type);

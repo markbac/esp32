@@ -80,6 +80,7 @@ void checkMidnight(TempestData &d) {
   if (lastDay >= 0 && lt.tm_yday != lastDay) {
     d.rainTodayMm = 0;
     d.strikesToday = 0;
+    d.maxRateTodayMmH = 0;
   }
   lastDay = lt.tm_yday;
 }
@@ -124,6 +125,9 @@ void onObservation(TempestData &d, JsonArrayConst o) {
     d.strikesHour += strikeMinute[i];
   }
   d.rainTodayMm += ob.rainMm;
+  d.rainRateMmH = ob.rainMm * 60.0f;  // 1-minute accumulation -> per hour.
+  d.maxRateTodayMmH = max(d.maxRateTodayMmH, d.rainRateMmH);
+  d.windowRateMmH = max(d.windowRateMmH, d.rainRateMmH);
   d.strikesToday += ob.strikes;
 
   d.windowRainMm += ob.rainMm;
@@ -224,15 +228,25 @@ void seedRainToday(float mm) {
   if (Net::localTime(lt)) lastDay = lt.tm_yday;
 }
 
-void takeWindow(float &rainMm, float &gustMph, uint16_t &strikes) {
+void takeWindow(float &rainMm, float &gustMph, uint16_t &strikes, float &maxRateMmH) {
   DataService::Guard g;
   TempestData &d = DataService::tempestMutable();
   rainMm = d.windowRainMm;
   gustMph = d.windowGustMph;
   strikes = d.windowStrikes;
+  maxRateMmH = d.windowRateMmH;
   d.windowRainMm = 0;
   d.windowGustMph = 0;
   d.windowStrikes = 0;
+  d.windowRateMmH = 0;
+}
+
+const char *rainIntensity(float r) {
+  if (r < 0.05f) return "None";
+  if (r < 2.5f) return "Light";
+  if (r < 10.0f) return "Moderate";
+  if (r < 50.0f) return "Heavy";
+  return "Violent";
 }
 
 const char *precipName(uint8_t type) {

@@ -20,8 +20,10 @@ Both show local conditions, forecast, an animated rain radar with a 2-hour nowca
 | Aurora alerts | AuroraWatch UK (Lancaster University) | HTTPS XML | 5 min |
 | Radar frames | RainViewer | HTTPS JSON + PNG tiles | 10 min |
 | Base map | OpenStreetMap standard tiles, restyled dark on device | HTTPS PNG | once per boot |
-| Aircraft | adsb.lol (ODbL) | HTTPS JSON (HTTP/1.1) | 30 s |
+| Aircraft | adsb.lol (ODbL) | HTTPS JSON (HTTP/1.1) | 20 s |
 | Flight routes | adsbdb | HTTPS JSON | per callsign, cached |
+| Aircraft photos | planespotters.net (credit shown; User-Agent with contact URL required) | HTTPS JSON + progressive JPEG | per aircraft, cached |
+| Grid carbon intensity | carbonintensity.org.uk, region 3 (North West England) | HTTPS JSON | 30 min |
 | Moon phase | computed on device | — | — |
 | Time | SNTP | UDP | continuous |
 
@@ -233,14 +235,15 @@ If no observation has arrived for 5 minutes, the UI falls back to Open-Meteo val
 
 | Page | Content | Touch |
 |---|---|---|
+| Grid | Carbon intensity now + band, low-carbon share, greenest 3 h in the next day, generation mix, 48 h forecast | — |
 | Now | Tempest temp/feels/high-low, humidity, dew point, pressure + trend, rain today, UV/solar; wind compass with live needle; outlook strip with next 8 hours | — |
 | Forecast | 24-hour temperature line with rain-probability bars and 3-hourly icons; 7-day cards | — |
 | Radar | 520×380 map (~375 × 275 km), 9-frame loop; 2-hour rain chart | Tap map: pause; left/right third steps frames; middle resumes |
 | Air | EAQI + scale, pollutants vs WHO guideline, UV, pollen | — |
 | Sky | Sun arc with live position, sunrise/sunset, daylight, sunshine; moon phase | — |
-| Alerts | Met Office warnings; AuroraWatch level, 24 h chart; Tempest lightning | — |
-| Flights | North-up scope with labelled aircraft (colour = altitude); details card | **Tap a plane** to select it and fetch its route; tap empty sky for nearest |
-| History | 24 h / 3 d / 7 d charts: temperature, pressure, wind/gust, rain | Range buttons |
+| Alerts | Met Office warnings; **frost & ice risk**; AuroraWatch level, 24 h chart; Tempest lightning | — |
+| Flights | North-up scope with labelled aircraft (colour = altitude) and **trails**; details card with **photo**, route, cities, airline | **Tap a plane** to select it and fetch its route and photo; tap empty sky for nearest |
+| History | **Summary** (today, yesterday, records over 7/30/90 days) or charts over 24 h / 7 d / 30 d / 90 d | Mode buttons |
 | System | Network, Tempest hub/sensor, display health, feed ages | — |
 
 Navigation: tap a tab, swipe left/right, or tap the status-bar icons to open Alerts.
@@ -265,9 +268,21 @@ sequenceDiagram
 
 ---
 
+### New derived features
+
+| Feature | How |
+|---|---|
+| **Rain rate** | Tempest 1-minute rain x 60 = mm/h, with peak today and peak per history interval; Met Office intensity bands (light < 2.5, moderate < 10, heavy < 50 mm/h). The Now page shows "Raining now" from the Tempest before any forecast. |
+| **Frost & ice risk** (`frost.*`) | Rules on Tempest air temperature, dew point and wet surfaces (rain in the last hour/day), plus the forecast minimum over the next 12 h; shown as a chip on Now, a card on Alerts, and a status-bar chip at Moderate+. |
+| **Radar rain arrival** (`Radar::estimate`) | Rain mask = pixels differing from the cached base map, on a 4 px grid. Motion = the shift (within +/-8 cells, ~23 km) that best overlaps consecutive frames, averaged over the last 3 pairs. From home, walk upwind in a 5-cell corridor to the first rain; distance / speed = minutes. Computed after each radar refresh; shown on Radar and Now. |
+| **Plane trails** | Each poll carries forward the previous positions of aircraft still in range (matched by ICAO hex), up to 10 points (~3 min at 20 s polls). |
+| **Aircraft photos** | `requestPhoto(hex)` -> worker fetches the planespotters thumbnail_large (420x280, progressive JPEG) into a 6-entry PSRAM cache; the UI decodes it once with **stb_image** (TJpgDec can't do progressive) and box-scales it to 210x140. |
+| **Records & summaries** | Computed on the History page from the 90-day log: today/yesterday highs and lows with times, strongest gust, rain and peak rate, lightning; 7/30/90-day extremes with dates, total rain, wettest day, wet days. |
+
 ## 7. History log (shared)
 
-- Fixed-size records in a LittleFS ring file (`/history.bin`), one per quarter hour, 768 slots (8 days). Layout **v2** adds Tempest fields; a version mismatch starts a fresh log.
+- Fixed-size 58-byte records in a LittleFS ring file (`/history.bin`), one per quarter hour. Capacity is `HISTORY_DAYS`: **90 days (8,640 slots, ~500 KB) on the CrowPanel**, 8 days on the Feather (its partition is 128 KB). Layout **v3** adds peak rain rate and grid carbon intensity; a version or capacity mismatch starts a fresh log.
+- Why a ring file and not SQLite: records are fixed-size and append-only, so slot = time order, writes touch one record + a 16-byte header (low flash wear), memory is constant, and a 90-day read is one sequential pass. SQLite on ESP32 would add ~400 KB of code and page-cache RAM for queries we can do in a loop.
 - Each record holds:
   - Open-Meteo: temperature, feels-like, humidity, pressure, 15-min rain, wind, gust, direction, weather code
   - Air quality: EAQI, PM2.5
@@ -283,7 +298,7 @@ sequenceDiagram
 | `/` | Live mirrors of every page (click to enlarge with fast refresh), 24 h / 3 d / 7 d charts, CSV link |
 | `/screen.bmp?p=N` | 24-bit BMP of page N: 240×135 (Feather), 400×240 (CrowPanel) |
 | `/api/now.json` | Current values, source, page list; CrowPanel adds render timings and last tap |
-| `/history.csv?days=N` | History log |
+| `/history.csv?days=N` | History log (up to `HISTORY_DAYS`; 32 columns incl. rain rate and carbon) |
 
 Hostnames: `weather.local` (Feather), `weather7.local` (CrowPanel). Each board plugs into the shared server through `WebUi::Board`: its size, pages, a snapshot hook and extra JSON.
 

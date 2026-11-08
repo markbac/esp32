@@ -10,10 +10,21 @@
  *          any other aircraft (e.g. one the user taps on the CrowPanel) are
  *          requested with requestRoute() and resolved by resolvePending() on
  *          the data worker; findRoute() reads the cache from any task.
+ *
+ *          Aircraft photos come from planespotters.net (free API; the
+ *          photographer credit must be shown). requestPhoto() queues a lookup
+ *          by ICAO hex and withPhoto() hands the JPEG bytes to a callback under
+ *          a lock. Trails: each poll carries forward the previous positions of
+ *          every aircraft still in range (matched by ICAO hex).
  */
 #pragma once
 
 #include <Arduino.h>
+
+#include <functional>
+
+/** @brief Previous positions kept per aircraft for trails (one per poll). */
+constexpr uint8_t TRAIL_POINTS = 10;
 
 /** @brief One aircraft seen near the configured location. */
 struct Aircraft {
@@ -30,6 +41,9 @@ struct Aircraft {
   int16_t track = 0;      ///< Track over ground, degrees true.
   float distNm = 0;       ///< Distance from home, nautical miles.
   float bearing = 0;      ///< Bearing from home, degrees true.
+  uint8_t trailCount = 0;                 ///< Valid trail points (oldest first).
+  float trailDist[TRAIL_POINTS] = {};     ///< Earlier distances, nm.
+  float trailBearing[TRAIL_POINTS] = {};  ///< Earlier bearings, degrees.
 };
 
 /** @brief Origin/destination for a callsign. */
@@ -77,7 +91,17 @@ bool findRoute(const char *callsign, FlightRoute &route);
 /** @brief Ask the data worker to look up @p callsign's route soon (thread-safe). */
 void requestRoute(const char *callsign);
 
-/** @brief Resolve a pending requestRoute() (called on the data worker). */
+/** @brief Ask the data worker to fetch the photo for ICAO @p hex (thread-safe). */
+void requestPhoto(const char *hex);
+
+/**
+ * @brief  Run @p fn with the cached photo for @p hex while holding the cache lock.
+ * @param  fn  Receives JPEG bytes, length and the photographer credit.
+ * @return 1 if a photo was passed to @p fn, 0 if none exists, -1 if not looked up yet.
+ */
+int withPhoto(const char *hex, const std::function<void(const uint8_t *, size_t, const char *)> &fn);
+
+/** @brief Resolve pending route and photo requests (called on the data worker). */
 bool resolvePending();
 
 }  // namespace Flights

@@ -16,6 +16,7 @@
 
 #include "air_quality.h"
 #include "aurora.h"
+#include "carbon.h"
 #include "flights.h"
 #include "radar.h"
 #include "tempest.h"
@@ -54,6 +55,7 @@ const AuroraData &aurora();
 const RadarLoop &radar();
 const FlightList &flights();
 const TempestData &tempest();
+const CarbonData &carbon();
 ///@}
 
 /** @brief Writable Tempest store; only the Tempest module uses this, under the lock. */

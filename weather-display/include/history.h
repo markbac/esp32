@@ -5,7 +5,8 @@
  * @details Records are fixed-size and stored in a ring file on LittleFS (the
  *          128 KB "spiffs" partition), so the log survives reboots and power
  *          loss and never grows: when full, the oldest record is overwritten.
- *          Default capacity is 8 days of 15-minute records (~26 KB).
+ *          Capacity is HISTORY_DAYS of 15-minute records: 8 days on the
+ *          Feather (128 KB partition), 90 days on the CrowPanel (~500 KB).
  *
  *          File layout: a 16-byte @ref HistoryHeader followed by
  *          HISTORY_CAPACITY slots of @ref HistoryRecord.
@@ -18,7 +19,7 @@
 
 #include <vector>
 
-/** @brief One logged sample (packed, scaled integers; layout version 2). */
+/** @brief One logged sample (packed, scaled integers; layout version 3). */
 struct __attribute__((packed)) HistoryRecord {
   uint32_t time;        ///< UTC epoch seconds.
   int16_t temp10;       ///< Air temperature, 0.1 deg C.
@@ -51,6 +52,8 @@ struct __attribute__((packed)) HistoryRecord {
   uint16_t tSolar;      ///< Solar radiation, W/m2.
   uint8_t tStrikes;     ///< Lightning strikes in the interval.
   uint16_t tBattMv;     ///< Sensor battery, mV.
+  uint16_t tRate10;     ///< Highest rain rate in the interval, 0.1 mm/h.
+  uint16_t carbon;      ///< Grid carbon intensity, gCO2/kWh (valid when HF_CARBON).
 };
 
 /** @name HistoryRecord::flags bits */
@@ -60,6 +63,7 @@ constexpr uint8_t HF_AIR = 1 << 1;
 constexpr uint8_t HF_BATTERY = 1 << 2;
 constexpr uint8_t HF_AURORA = 1 << 3;
 constexpr uint8_t HF_TEMPEST = 1 << 4;
+constexpr uint8_t HF_CARBON = 1 << 5;
 ///@}
 
 namespace History {

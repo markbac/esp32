@@ -23,10 +23,9 @@ struct CanvasLock {
   ~CanvasLock() { xSemaphoreGive(canvasMutex); }
 };
 
-const char *const TAB_NAMES[] = {"Now", "Forecast", "Radar", "Air", "Sky", "Alerts", "Flights", "History", "System"};
-const char *const TITLES[] = {"Conditions now",   "Forecast",       "Rain radar",     "Air quality",
-                              "Sun & moon",       "Alerts",         "Flights overhead", "History",
-                              "System"};
+const char *const TAB_NAMES[] = {"Now", "Forecast", "Radar", "Air", "Grid", "Sky", "Alerts", "Flights", "History", "System"};
+const char *const TITLES[] = {"Conditions now", "Forecast", "Rain radar", "Air quality", "Electricity grid",
+                              "Sun & moon",     "Alerts",   "Flights overhead", "History & records", "System"};
 constexpr int TABS = static_cast<int>(Page::Count);
 
 /** @brief Clock, date, page title and status icons. */
@@ -53,6 +52,12 @@ void statusBar() {
     warningTriangle(x, 10, 24, warningColor(wl.highest()));
     x -= 10;
   }
+  const FrostRisk fr = Frost::assess(DataService::weather(), DataService::tempest());
+  if (fr.level >= FrostLevel::Moderate) {
+    x -= textWidth("FROST", F::XS) + 20;
+    chip(x, 8, "FROST", frostColor(fr.level), C::BG, F::XS);
+    x -= 10;
+  }
   const AuroraData &au = DataService::aurora();
   if (au.valid && au.level >= AuroraLevel::Amber) {
     x -= textWidth("AURORA", F::XS) + 20;
@@ -71,7 +76,8 @@ void tabBar() {
   canvas.fillRect(0, TAB_Y, W, TAB_H, C::BAR);
   canvas.drawFastHLine(0, TAB_Y, W, C::LINE);
   const bool alert = DataService::warnings().count > 0 ||
-                     (DataService::aurora().valid && DataService::aurora().level >= AuroraLevel::Amber);
+                     (DataService::aurora().valid && DataService::aurora().level >= AuroraLevel::Amber) ||
+                     Frost::assess(DataService::weather(), DataService::tempest()).level >= FrostLevel::Moderate;
   for (int i = 0; i < TABS; ++i) {
     const int x0 = i * W / TABS, x1 = (i + 1) * W / TABS;
     const bool active = i == static_cast<int>(state.page);
@@ -79,7 +85,8 @@ void tabBar() {
       canvas.fillRect(x0, TAB_Y + 1, x1 - x0, TAB_H - 1, C::CARD2);
       canvas.fillRect(x0, TAB_Y, x1 - x0, 3, C::ACCENT);
     }
-    text(TAB_NAMES[i], (x0 + x1) / 2, TAB_Y + TAB_H / 2 + 1, F::S, active ? C::ACCENT : C::MUTED, td::middle_center);
+    const F tf = textWidth(TAB_NAMES[i], F::S) <= x1 - x0 - 6 ? F::S : F::XS;  // Shrink long labels.
+    text(TAB_NAMES[i], (x0 + x1) / 2, TAB_Y + TAB_H / 2 + 1, tf, active ? C::ACCENT : C::MUTED, td::middle_center);
     if (i == static_cast<int>(Page::Alerts) && alert) canvas.fillCircle(x1 - 12, TAB_Y + 12, 5, C::ORANGE);
     if (i > 0) canvas.drawFastVLine(x0, TAB_Y + 10, TAB_H - 20, C::LINE);
   }
@@ -95,6 +102,7 @@ void compose(Page page) {
     case Page::Forecast: pageForecast(); break;
     case Page::Radar: pageRadar(); break;
     case Page::Air: pageAir(); break;
+    case Page::Grid: pageGrid(); break;
     case Page::Sky: pageSky(); break;
     case Page::Alerts: pageAlerts(); break;
     case Page::Flights: pageFlights(); break;
