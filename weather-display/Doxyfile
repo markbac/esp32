@@ -1,0 +1,15 @@
+# Minimal Doxygen configuration - run `doxygen Doxyfile` from this folder.
+PROJECT_NAME           = "Weather Display"
+PROJECT_BRIEF          = "ESP32-S3 Reverse TFT Feather weather station"
+OUTPUT_DIRECTORY       = docs/api
+INPUT                  = include src docs/DESIGN.md
+FILE_PATTERNS          = *.h *.cpp *.md
+EXCLUDE                = include/secrets.h
+RECURSIVE              = YES
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+EXTRACT_ANON_NSPACES   = YES
+USE_MDFILE_AS_MAINPAGE = docs/DESIGN.md
+GENERATE_LATEX         = NO
+HTML_OUTPUT            = html
+QUIET                  = YES
