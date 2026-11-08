@@ -27,6 +27,8 @@ enum class Page : uint8_t {
   Alerts,    ///< Met Office warnings, frost/ice risk, AuroraWatch, lightning.
   Flights,   ///< Tap-to-select aircraft scope with trails + photo and details.
   History,   ///< Today/yesterday/records summary and charts from the 90-day log.
+  Home,      ///< Home Assistant: temperatures, people, heating, power, lights, open doors.
+  Lab,       ///< Home lab: NAS health, internet speed, services, Sonos.
   System,    ///< Network, Tempest hub/sensor, device and feed status.
   Count      ///< Number of pages (not a page).
 };

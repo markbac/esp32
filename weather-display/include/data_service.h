@@ -18,6 +18,8 @@
 #include "aurora.h"
 #include "carbon.h"
 #include "flights.h"
+#include "home_assistant.h"
+#include "homelab.h"
 #include "radar.h"
 #include "tempest.h"
 #include "warnings.h"
@@ -56,6 +58,8 @@ const RadarLoop &radar();
 const FlightList &flights();
 const TempestData &tempest();
 const CarbonData &carbon();
+const HomelabData &homelab();
+const HaData &homeAssistant();
 ///@}
 
 /** @brief Writable Tempest store; only the Tempest module uses this, under the lock. */

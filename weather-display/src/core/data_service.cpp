@@ -25,6 +25,8 @@ AuroraData auroraShared;
 FlightList flightsShared;
 TempestData tempestShared;
 CarbonData carbonShared;
+HomelabData homelabShared;
+HaData haShared;
 RadarLoop radarShared;              ///< Frames shown by the UI and web server.
 uint16_t *radarSpare = nullptr;     ///< Buffer the worker composes the next frame into.
 
@@ -121,6 +123,23 @@ Feed feeds[] = {
     {"carbon", [] { return update(carbonShared, Carbon::fetch); }, CARBON_INTERVAL_MS},
     {"flights", [] { return update(flightsShared, Flights::fetch); }, FLIGHTS_INTERVAL_MS},
     {"routes", [] { return Flights::resolvePending(); }, 500, 0, 0, false, false, true},
+#if ENABLE_HOMELAB
+    {"homelab", [] { return update(homelabShared, Homelab::fetch); }, HOMELAB_INTERVAL_MS},
+    {"homeassistant",
+     [] {
+       // Keeps the last good data on failure but records the HTTP status (e.g. 401 = bad token).
+       if (!HomeAssistant::configured()) return true;
+       HaData staging;
+       const bool ok = HomeAssistant::fetch(staging);
+       DataService::lock();
+       if (ok) haShared = staging;
+       else haShared.lastStatus = staging.lastStatus;
+       haShared.configured = true;
+       DataService::unlock();
+       return ok;
+     },
+     HA_INTERVAL_MS},
+#endif
     {"radar", updateRadar, RADAR_INTERVAL_MS},
 };
 
@@ -169,6 +188,8 @@ const RadarLoop &radar() { return radarShared; }
 const FlightList &flights() { return flightsShared; }
 const TempestData &tempest() { return tempestShared; }
 const CarbonData &carbon() { return carbonShared; }
+const HomelabData &homelab() { return homelabShared; }
+const HaData &homeAssistant() { return haShared; }
 TempestData &tempestMutable() { return tempestShared; }
 
 uint8_t feedStatus(FeedAge *out, uint8_t max) {

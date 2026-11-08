@@ -2,7 +2,7 @@
 
 Home weather station firmware for two displays that share one core:
 
-- **Elecrow CrowPanel 7" Basic** (800 × 480 touch): ten touch pages with a tab bar and swipe navigation.
+- **Elecrow CrowPanel 7" Basic** (800 × 480 touch): twelve touch pages with a tab bar and swipe navigation.
 - **Adafruit Feather ESP32-S3 Reverse TFT** (240 × 135): nine auto-rotating pages, driven by three buttons.
 
 **Data shown:**
@@ -15,6 +15,8 @@ Home weather station firmware for two displays that share one core:
 - Met Office warnings and AuroraWatch UK aurora alerts.
 - Sunrise, sunset and moon phase.
 - Nearby flights with **trails**. On the CrowPanel, **tap any plane** for its **photo**, route and details.
+- **Home Assistant** summary (temperatures, people, heating, power, lights, open doors).
+- **Home lab**: NAS health (Glances), internet speed (Speedtest Tracker), services (Uptime Kuma), Sonos now playing.
 - System status.
 
 **Also:** quarter-hourly history saved to flash (**90 days** on the CrowPanel, 8 on the Feather) with records, summaries and charts, and a local web dashboard that mirrors every screen and charts the last 7 days (CSV download included). The dashboard is at `http://weather7.local` for the CrowPanel and `http://weather.local` for the Feather.
@@ -37,6 +39,10 @@ pio run -e feather_s3_reverse_tft -t upload
 ```
 
 On Windows, `scripts/flash.ps1` handles the Feather switching to a new COM port partway through an upload.
+
+## Settings page
+
+Open `http://weather7.local/settings` (or `weather.local` for the Feather) to set the Home Assistant URL and token, home-lab hosts and ports, Sonos speakers, backlight levels, Wi-Fi and an optional settings password. Secrets are **write-only**: they are never shown or returned, only reported as set/not set.
 
 ## Controls
 

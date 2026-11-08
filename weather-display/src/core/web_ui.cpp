@@ -13,6 +13,7 @@
 #include "data_service.h"
 #include "history.h"
 #include "web_page.h"
+#include "web_settings.h"
 
 namespace {
 
@@ -244,6 +245,7 @@ void begin(const Board &b) {
   server.on("/screen.bmp", HTTP_GET, handleScreen);
   server.on("/api/now.json", HTTP_GET, handleNow);
   server.on("/history.csv", HTTP_GET, handleHistory);
+  WebSettings::registerRoutes(server);
   server.onNotFound([] { server.send(404, "text/plain", "Not found"); });
   server.begin();
 

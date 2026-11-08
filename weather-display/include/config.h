@@ -56,6 +56,23 @@ constexpr int CARBON_REGION_ID = 3;            ///< 3 = North West England (see 
 constexpr uint32_t CARBON_INTERVAL_MS = 30UL * 60UL * 1000UL;  ///< Half-hourly data.
 ///@}
 
+/** @name Home lab (LAN services, no login) - CrowPanel only */
+///@{
+#define HOMELAB_NAS_HOST "10.0.10.203"            ///< Synology NAS running the containers below.
+constexpr int GLANCES_PORT = 61208;               ///< Glances REST API v4.
+constexpr int SPEEDTEST_PORT = 8899;              ///< Speedtest Tracker.
+constexpr int KUMA_PORT = 3444;                   ///< Uptime Kuma.
+#define KUMA_SLUG "default"                       ///< Uptime Kuma public status page slug.
+constexpr const char *SONOS_HOSTS[] = {"10.0.11.93", "10.0.10.150"};  ///< Sonos speakers (Bar, Kitchen).
+constexpr uint32_t HOMELAB_INTERVAL_MS = 60UL * 1000UL;
+///@}
+
+/** @name Home Assistant (token in secrets.h as HA_TOKEN) - CrowPanel only */
+///@{
+#define HA_URL "http://10.0.10.244:8123"          ///< Home Assistant base URL.
+constexpr uint32_t HA_INTERVAL_MS = 60UL * 1000UL;
+///@}
+
 /** @name Rain radar */
 ///@{
 constexpr int RADAR_ZOOM = 7;                  ///< Tile zoom (7 = ~0.7 km/px here; RainViewer's max).

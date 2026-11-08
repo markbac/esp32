@@ -52,6 +52,7 @@ static const char WEB_PAGE[] = R"HTML(<!doctype html>
 <header>
   <h1>Weather Display</h1>
   <span id="pills"></span>
+  <a href="/settings" style="margin-left:auto;color:var(--accent);text-decoration:none">&#9881; Settings</a>
 </header>
 <main>
   <section>

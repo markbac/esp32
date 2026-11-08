@@ -24,6 +24,11 @@ Both show local conditions, forecast, an animated rain radar with a 2-hour nowca
 | Flight routes | adsbdb | HTTPS JSON | per callsign, cached |
 | Aircraft photos | planespotters.net (credit shown; User-Agent with contact URL required) | HTTPS JSON + progressive JPEG | per aircraft, cached |
 | Grid carbon intensity | carbonintensity.org.uk, region 3 (North West England) | HTTPS JSON | 30 min |
+| NAS health | Glances REST API v4 (LAN, no login) | HTTP JSON | 60 s |
+| Internet speed | Speedtest Tracker `/api/speedtest/latest` (LAN) | HTTP/1.0 JSON | 60 s |
+| Service monitors | Uptime Kuma public status page (LAN) | HTTP JSON | 60 s |
+| Sonos | UPnP SOAP `GetTransportInfo` / `GetPositionInfo` on :1400 (LAN, read-only) | HTTP XML | 60 s |
+| Home Assistant | `POST /api/template` with a long-lived token (LAN) | HTTP JSON | 60 s |
 | Moon phase | computed on device | — | — |
 | Time | SNTP | UDP | continuous |
 
@@ -236,6 +241,8 @@ If no observation has arrived for 5 minutes, the UI falls back to Open-Meteo val
 | Page | Content | Touch |
 |---|---|---|
 | Grid | Carbon intensity now + band, low-carbon share, greenest 3 h in the next day, generation mix, 48 h forecast | — |
+| Home | Home Assistant: temperatures, humidity, people, lights, open doors/windows, heating, biggest power users; setup steps until a token is saved | — |
+| Lab | NAS CPU/memory/disk/temperature and container health, internet speed, Sonos now playing, Uptime Kuma services (down ones as chips) | — |
 | Now | Tempest temp/feels/high-low, humidity, dew point, pressure + trend, rain today, UV/solar; wind compass with live needle; outlook strip with next 8 hours | — |
 | Forecast | 24-hour temperature line with rain-probability bars and 3-hourly icons; 7-day cards | — |
 | Radar | 520×380 map (~375 × 275 km), 9-frame loop; 2-hour rain chart | Tap map: pause; left/right third steps frames; middle resumes |
@@ -281,8 +288,9 @@ sequenceDiagram
 
 ## 7. History log (shared)
 
-- Fixed-size 58-byte records in a LittleFS ring file (`/history.bin`), one per quarter hour. Capacity is `HISTORY_DAYS`: **90 days (8,640 slots, ~500 KB) on the CrowPanel**, 8 days on the Feather (its partition is 128 KB). Layout **v3** adds peak rain rate and grid carbon intensity; a version or capacity mismatch starts a fresh log.
-- Why a ring file and not SQLite: records are fixed-size and append-only, so slot = time order, writes touch one record + a 16-byte header (low flash wear), memory is constant, and a 90-day read is one sequential pass. SQLite on ESP32 would add ~400 KB of code and page-cache RAM for queries we can do in a loop.
+- Fixed-size 62-byte records, one per quarter hour, in **append-only weekly files** `/hist/w<week>.bin` (week = UTC days / 7) on LittleFS. Retention is `HISTORY_DAYS`: **90 days on the CrowPanel** (~14 files, ~540 KB of 896 KB), 8 days on the Feather (128 KB partition). When a new week starts, files older than the retention are deleted. `/hist/meta.bin` holds the layout version (**v4**) and record size; a mismatch clears the log.
+- Why weekly files: LittleFS stores a file as a chain of blocks, so modifying bytes near the start of a large file (as a ring buffer does) rewrites everything after it. That needs free space the size of the file and wears the flash. Appends touch only the last block, and pruning is a file delete.
+- Why not SQLite: records are fixed-size and time-ordered, so files already are the index; a 90-day read is one sequential pass. SQLite on ESP32 would add ~400 KB of code plus page-cache RAM for queries that are simple loops here.
 - Each record holds:
   - Open-Meteo: temperature, feels-like, humidity, pressure, 15-min rain, wind, gust, direction, weather code
   - Air quality: EAQI, PM2.5
@@ -290,6 +298,15 @@ sequenceDiagram
   - Tempest: temperature, humidity, sea-level pressure, average wind, **highest gust and rain total in the interval**, UV, solar, strikes, sensor battery
   - Device: battery (Feather), Wi-Fi RSSI, aircraft count
 - The web CSV (`/history.csv?days=N`) has 30 columns. Dashboard charts prefer Tempest series and hide any series with no data.
+
+### Home Assistant summary
+
+Instead of `/api/states` (hundreds of KB), the device POSTs one Jinja template to `/api/template` and Home Assistant renders a compact JSON summary server-side: numeric temperature/humidity/power sensors, persons, climate entities, light counts and open door/window binary sensors. The token is sent as `Authorization: Bearer`.
+
+### Lessons from bring-up
+
+- Uptime Kuma's heartbeat document holds ~100 beats per monitor; building a JSON tree from it exhausted internal RAM and crashed the worker. Only the latest `"status"` per monitor is now read by scanning the text.
+- LittleFS stores files as block chains, so rewriting near the start of a large file rewrites the rest of it. The 90-day log therefore uses append-only weekly files (see section 7).
 
 ## 8. Web dashboard (shared)
 
@@ -299,6 +316,17 @@ sequenceDiagram
 | `/screen.bmp?p=N` | 24-bit BMP of page N: 240×135 (Feather), 400×240 (CrowPanel) |
 | `/api/now.json` | Current values, source, page list; CrowPanel adds render timings and last tap |
 | `/history.csv?days=N` | History log (up to `HISTORY_DAYS`; 32 columns incl. rain rate and carbon) |
+| `/settings` | Settings form (GET) and save (POST) |
+| `/api/settings` | Non-secret settings; secrets only as `"set"` / `"not set"` |
+
+### Settings page (write-only secrets)
+
+Runtime settings live in NVS (`Preferences`, namespace `wxcfg`) and override the build-time defaults from `config.h`/`secrets.h`. Editable: Home Assistant URL and **token**, NAS host and Glances/Speedtest/Kuma ports, Uptime Kuma slug, Sonos IPs, day/night backlight, Wi-Fi SSID and **password** (applied after restart; falls back to the compiled-in network if it fails), and an optional **settings password**.
+
+- **Secrets are write-only.** Password inputs are never pre-filled; the page and `/api/settings` show only "set"/"not set". A blank field keeps the stored value; a "clear" box removes it.
+- When a settings password is set, saving requires it.
+- Inputs are validated (ports 1-65535, backlight ranges, URL scheme); an invalid form saves nothing.
+- The page is plain HTTP on the LAN: anyone who can reach it can *replace* settings (unless protected) but cannot *read* secrets.
 
 Hostnames: `weather.local` (Feather), `weather7.local` (CrowPanel). Each board plugs into the shared server through `WebUi::Board`: its size, pages, a snapshot hook and extra JSON.
 

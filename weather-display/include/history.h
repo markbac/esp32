@@ -2,14 +2,20 @@
  * @file    history.h
  * @brief   Persistent quarter-hourly log of weather, air, device and sky data.
  *
- * @details Records are fixed-size and stored in a ring file on LittleFS (the
- *          128 KB "spiffs" partition), so the log survives reboots and power
- *          loss and never grows: when full, the oldest record is overwritten.
- *          Capacity is HISTORY_DAYS of 15-minute records: 8 days on the
- *          Feather (128 KB partition), 90 days on the CrowPanel (~500 KB).
+ * @details Records are fixed-size and stored on LittleFS (the "spiffs"
+ *          partition) in **append-only weekly files**: `/hist/w<week>.bin`,
+ *          where week = UTC days since 1970 / 7. Each record is appended to the
+ *          current week's file; when files cover more than HISTORY_DAYS the
+ *          oldest is deleted. Retention: 8 days on the Feather (128 KB
+ *          partition), 90 days on the CrowPanel (~520 KB of ~900 KB).
  *
- *          File layout: a 16-byte @ref HistoryHeader followed by
- *          HISTORY_CAPACITY slots of @ref HistoryRecord.
+ *          Why not one ring file: LittleFS stores a file as a chain of blocks,
+ *          so rewriting bytes near the start of a large file (a ring header or
+ *          slot) rewrites everything after it, needing free space the size of
+ *          the file and wearing the flash. Appends only touch the last block.
+ *
+ *          `/hist/meta.bin` records the layout version and record size; a
+ *          mismatch clears the log.
  *
  *          Thread-safe: append() runs on the UI loop, read() on the web task.
  */

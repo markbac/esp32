@@ -23,9 +23,11 @@ struct CanvasLock {
   ~CanvasLock() { xSemaphoreGive(canvasMutex); }
 };
 
-const char *const TAB_NAMES[] = {"Now", "Forecast", "Radar", "Air", "Grid", "Sky", "Alerts", "Flights", "History", "System"};
-const char *const TITLES[] = {"Conditions now", "Forecast", "Rain radar", "Air quality", "Electricity grid",
-                              "Sun & moon",     "Alerts",   "Flights overhead", "History & records", "System"};
+const char *const TAB_NAMES[] = {"Now",     "Forecast", "Radar",   "Air",  "Grid", "Sky",
+                                 "Alerts",  "Flights",  "History", "Home", "Lab",  "System"};
+const char *const TITLES[] = {"Conditions now", "Forecast",         "Rain radar",        "Air quality",
+                              "Electricity grid", "Sun & moon",     "Alerts",            "Flights overhead",
+                              "History & records", "Home Assistant", "Home lab",         "System"};
 constexpr int TABS = static_cast<int>(Page::Count);
 
 /** @brief Clock, date, page title and status icons. */
@@ -107,6 +109,8 @@ void compose(Page page) {
     case Page::Alerts: pageAlerts(); break;
     case Page::Flights: pageFlights(); break;
     case Page::History: pageHistory(); break;
+    case Page::Home: pageHome(); break;
+    case Page::Lab: pageLab(); break;
     case Page::System: pageSystem(); break;
     case Page::Count: break;
   }

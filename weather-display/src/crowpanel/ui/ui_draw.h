@@ -6,7 +6,7 @@
  * @verbatim
  *   y   0..43   status bar   [21:57 Sun 8 Nov]   [Page title]   [T][aurora][!][wifi]
  *   y  44..423  page body (800 x 380); cards inset 8 px
- *   y 424..479  tab bar: Now | Forecast | Radar | Air | Grid | Sky | Alerts | Flights | History | System
+ *   y 424..479  tab bar (12): Now | Forecast | Radar | Air | Grid | Sky | Alerts | Flights | History | Home | Lab | System
  * @endverbatim
  */
 #pragma once
@@ -133,6 +133,8 @@ void pageSky();
 void pageAlerts();
 void pageFlights();
 void pageHistory();
+void pageHome();
+void pageLab();
 void pageSystem();
 bool tapRadar(int x, int y);
 bool tapFlights(int x, int y);

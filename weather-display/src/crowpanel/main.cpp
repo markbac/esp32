@@ -22,6 +22,7 @@
 #include "display.h"
 #include "history.h"
 #include "recorder.h"
+#include "settings.h"
 #if __has_include("secrets.h")
 #include "secrets.h"  // Your Wi-Fi credentials (git-ignored).
 #else
@@ -49,9 +50,10 @@ bool due(uint32_t &last, uint32_t interval) {
 
 /** @brief Dim the backlight from one hour after sunset until sunrise. */
 void updateBacklight() {
-  uint8_t want = CP_BACKLIGHT;
+  const SettingsData cfg = Settings::get();
+  uint8_t want = cfg.backlightDay;
   tm t;
-  if (CP_BACKLIGHT_NIGHT && Net::localTime(t)) {
+  if (cfg.backlightNight && Net::localTime(t)) {
     int rise = -1, set = -1;
     {
       DataService::Guard g;
@@ -59,7 +61,7 @@ void updateBacklight() {
       set = Astro::minutesOfDay(DataService::weather().sunset);
     }
     const int now = t.tm_hour * 60 + t.tm_min;
-    if (rise >= 0 && set >= 0 && (now < rise || now > set + 60)) want = CP_BACKLIGHT_NIGHT;
+    if (rise >= 0 && set >= 0 && (now < rise || now > set + 60)) want = cfg.backlightNight;
   }
   if (want != backlight) {
     backlight = want;
@@ -112,8 +114,13 @@ void setup() {
   Display::lcd().setTextColor(TFT_WHITE);
   Display::lcd().drawString("Connecting to Wi-Fi...", 40, 40);
 
+  Settings::begin();
   History::begin();
-  Net::begin(WIFI_SSID, WIFI_PASSWORD, WIFI_CONNECT_TIMEOUT_MS);
+  // Wi-Fi from the web settings if set, falling back to the compiled-in network.
+  const SettingsData cfg = Settings::get();
+  bool wifiOk = false;
+  if (cfg.wifiSsid.length()) wifiOk = Net::begin(cfg.wifiSsid.c_str(), cfg.wifiPassword.c_str(), WIFI_CONNECT_TIMEOUT_MS);
+  if (!wifiOk) Net::begin(WIFI_SSID, WIFI_PASSWORD, WIFI_CONNECT_TIMEOUT_MS);
   Net::beginTime(POSIX_TZ);
   for (int i = 0; i < 20 && !Net::timeValid(); ++i) delay(250);
 

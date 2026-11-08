@@ -25,6 +25,7 @@
 #include "data_service.h"
 #include "history.h"
 #include "recorder.h"
+#include "settings.h"
 #if __has_include("secrets.h")
 #include "secrets.h"  // Your Wi-Fi credentials (git-ignored).
 #else
@@ -188,9 +189,14 @@ void setup() {
   Wire.begin();
   Battery::begin(Wire);
   Battery::update();
+  Settings::begin();
   History::begin();
 
-  Net::begin(WIFI_SSID, WIFI_PASSWORD, WIFI_CONNECT_TIMEOUT_MS);
+  // Wi-Fi from the web settings if set, falling back to the compiled-in network.
+  const SettingsData cfg = Settings::get();
+  bool wifiOk = false;
+  if (cfg.wifiSsid.length()) wifiOk = Net::begin(cfg.wifiSsid.c_str(), cfg.wifiPassword.c_str(), WIFI_CONNECT_TIMEOUT_MS);
+  if (!wifiOk) Net::begin(WIFI_SSID, WIFI_PASSWORD, WIFI_CONNECT_TIMEOUT_MS);
   Net::beginTime(POSIX_TZ);
   // Give SNTP a moment so hourly data can be aligned to the current hour.
   for (int i = 0; i < 20 && !Net::timeValid(); ++i) delay(250);
