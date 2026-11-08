@@ -5,6 +5,8 @@
 #include "flights.h"
 
 #include <ArduinoJson.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 #include <algorithm>
 
@@ -14,9 +16,28 @@
 
 namespace {
 
-constexpr uint8_t ROUTE_CACHE_SIZE = 12;  ///< Callsign -> route entries remembered.
+constexpr uint8_t ROUTE_CACHE_SIZE = 32;  ///< Callsign -> route entries remembered.
 FlightRoute routeCache[ROUTE_CACHE_SIZE]; ///< Includes negative results (known = false).
 uint8_t routeCacheNext = 0;               ///< Round-robin replacement index.
+char pendingCallsign[9] = "";             ///< Route requested by the UI, awaiting lookup.
+SemaphoreHandle_t cacheMutex = nullptr;   ///< Guards the cache and pending request.
+
+/** @brief RAII lock for the route cache (created on first use). */
+struct CacheLock {
+  CacheLock() {
+    if (!cacheMutex) cacheMutex = xSemaphoreCreateMutex();
+    xSemaphoreTake(cacheMutex, portMAX_DELAY);
+  }
+  ~CacheLock() { xSemaphoreGive(cacheMutex); }
+};
+
+/** @brief Cache lookup; caller holds CacheLock. */
+const FlightRoute *cached(const char *callsign) {
+  for (const FlightRoute &r : routeCache) {
+    if (r.callsign[0] && strcmp(r.callsign, callsign) == 0) return &r;
+  }
+  return nullptr;
+}
 
 /** @brief Copy a JSON string field into a fixed buffer, trimming trailing spaces. */
 void copyTrim(char *dst, size_t size, const char *src) {
@@ -32,9 +53,10 @@ void copyTrim(char *dst, size_t size, const char *src) {
 void lookupRoute(const char *callsign, FlightRoute &route) {
   route = FlightRoute{};
   if (!callsign[0]) return;
-  for (const FlightRoute &r : routeCache) {
-    if (strcmp(r.callsign, callsign) == 0) {
-      route = r;
+  {
+    CacheLock lock;
+    if (const FlightRoute *r = cached(callsign)) {
+      route = *r;
       return;
     }
   }
@@ -44,6 +66,8 @@ void lookupRoute(const char *callsign, FlightRoute &route) {
   fr["airline"]["name"] = true;
   fr["origin"]["iata_code"] = true;
   fr["origin"]["icao_code"] = true;
+  fr["origin"]["municipality"] = true;
+  fr["destination"]["municipality"] = true;
   fr["destination"]["iata_code"] = true;
   fr["destination"]["icao_code"] = true;
 
@@ -63,7 +87,10 @@ void lookupRoute(const char *callsign, FlightRoute &route) {
     strlcpy(route.from, from, sizeof(route.from));
     strlcpy(route.to, to, sizeof(route.to));
     strlcpy(route.airline, r["airline"]["name"] | "", sizeof(route.airline));
+    strlcpy(route.fromCity, r["origin"]["municipality"] | "", sizeof(route.fromCity));
+    strlcpy(route.toCity, r["destination"]["municipality"] | "", sizeof(route.toCity));
   }
+  CacheLock lock;
   routeCache[routeCacheNext] = route;
   routeCacheNext = (routeCacheNext + 1) % ROUTE_CACHE_SIZE;
 }
@@ -76,7 +103,8 @@ bool fetch(FlightList &out) {
   // Keep only the fields we use; a busy sky can be 50+ KB of JSON.
   JsonDocument filter;
   JsonObject f = filter["ac"][0].to<JsonObject>();
-  for (const char *k : {"flight", "r", "t", "alt_baro", "gs", "track", "lat", "lon", "dst", "dir"}) f[k] = true;
+  for (const char *k : {"hex", "flight", "r", "t", "desc", "alt_baro", "baro_rate", "gs", "track", "squawk", "lat", "lon", "dst", "dir"})
+    f[k] = true;
 
   JsonDocument doc;
   const String url = String("https://api.adsb.lol/v2/point/") + WX_LATITUDE + "/" + WX_LONGITUDE + "/" + FLIGHT_RADIUS_NM;
@@ -100,7 +128,11 @@ bool fetch(FlightList &out) {
   // Collect all, then keep the nearest MAX_AIRCRAFT.
   for (JsonObject a : ac) {
     Aircraft p;
+    copyTrim(p.hex, sizeof(p.hex), a["hex"] | "");
     copyTrim(p.callsign, sizeof(p.callsign), a["flight"] | "");
+    copyTrim(p.desc, sizeof(p.desc), a["desc"] | "");
+    copyTrim(p.squawk, sizeof(p.squawk), a["squawk"] | "");
+    p.vertRate = static_cast<int16_t>(constrain(a["baro_rate"] | 0, -32000, 32000));
     copyTrim(p.reg, sizeof(p.reg), a["r"] | "");
     copyTrim(p.type, sizeof(p.type), a["t"] | "");
     if (a["alt_baro"].is<int>()) p.altFt = a["alt_baro"];
@@ -142,6 +174,36 @@ bool fetch(FlightList &out) {
   } else {
     Serial.printf("[flights] %u aircraft, none airborne\n", list.total);
   }
+  return true;
+}
+
+bool findRoute(const char *callsign, FlightRoute &route) {
+  if (!callsign || !callsign[0]) return false;
+  CacheLock lock;
+  if (const FlightRoute *r = cached(callsign)) {
+    route = *r;
+    return true;
+  }
+  return false;
+}
+
+void requestRoute(const char *callsign) {
+  if (!callsign || !callsign[0]) return;
+  CacheLock lock;
+  if (!cached(callsign)) strlcpy(pendingCallsign, callsign, sizeof(pendingCallsign));
+}
+
+bool resolvePending() {
+  char cs[sizeof(pendingCallsign)];
+  {
+    CacheLock lock;
+    if (!pendingCallsign[0]) return true;
+    strlcpy(cs, pendingCallsign, sizeof(cs));
+    pendingCallsign[0] = '\0';
+  }
+  FlightRoute route;
+  lookupRoute(cs, route);
+  Serial.printf("[route] %s: %s %s-%s\n", cs, route.known ? route.airline : "unknown", route.from, route.to);
   return true;
 }
 

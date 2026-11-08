@@ -5,6 +5,11 @@
  * @details adsb.lol (https://api.adsb.lol) is a free, community-fed ADS-B
  *          aggregator (data licensed ODbL). Routes for the nearest aircraft come
  *          from adsbdb.com (https://api.adsbdb.com) and are cached by callsign.
+ *
+ *          The nearest aircraft's route is looked up on every poll. Routes for
+ *          any other aircraft (e.g. one the user taps on the CrowPanel) are
+ *          requested with requestRoute() and resolved by resolvePending() on
+ *          the data worker; findRoute() reads the cache from any task.
  */
 #pragma once
 
@@ -12,7 +17,11 @@
 
 /** @brief One aircraft seen near the configured location. */
 struct Aircraft {
+  char hex[7] = "";       ///< ICAO 24-bit address (stable id), e.g. "4ac9e7".
   char callsign[9] = "";  ///< Flight callsign, e.g. "EZY542T" (may be empty).
+  char desc[28] = "";     ///< Type description, e.g. "AIRBUS A-320neo".
+  int16_t vertRate = 0;   ///< Climb (+) / descent (-) rate, ft/min.
+  char squawk[5] = "";    ///< Transponder code.
   char reg[9] = "";       ///< Registration, e.g. "G-EZWA".
   char type[5] = "";      ///< ICAO type designator, e.g. "A20N".
   int32_t altFt = 0;      ///< Barometric altitude, feet.
@@ -30,6 +39,8 @@ struct FlightRoute {
   char from[5] = "";       ///< Origin IATA (or ICAO) code.
   char to[5] = "";         ///< Destination IATA (or ICAO) code.
   char airline[28] = "";   ///< Airline name.
+  char fromCity[24] = "";  ///< Origin municipality, e.g. "Copenhagen".
+  char toCity[24] = "";    ///< Destination municipality.
 };
 
 /** @brief Maximum aircraft kept, nearest first. */
@@ -54,5 +65,19 @@ namespace Flights {
  * @return true on success (an empty sky is a success).
  */
 bool fetch(FlightList &out);
+
+/**
+ * @brief  Look up a cached route (thread-safe, never blocks on the network).
+ * @param  callsign  Trimmed callsign.
+ * @param[out] route Filled if cached (route.known may still be false = unknown).
+ * @return true if the callsign is in the cache.
+ */
+bool findRoute(const char *callsign, FlightRoute &route);
+
+/** @brief Ask the data worker to look up @p callsign's route soon (thread-safe). */
+void requestRoute(const char *callsign);
+
+/** @brief Resolve a pending requestRoute() (called on the data worker). */
+bool resolvePending();
 
 }  // namespace Flights

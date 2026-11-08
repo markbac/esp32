@@ -15,7 +15,7 @@ namespace {
 
 const char *const PATH = "/history.bin";
 constexpr uint32_t MAGIC = 0x31485857;  ///< "WXH1".
-constexpr uint16_t VERSION = 1;
+constexpr uint16_t VERSION = 2;  ///< v2 added Tempest fields.
 
 /** @brief On-disk header (16 bytes). */
 struct __attribute__((packed)) HistoryHeader {

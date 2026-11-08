@@ -4,7 +4,7 @@
  *
  * @details Single self-contained page. Chart.js is loaded from the jsDelivr
  *          CDN by the *browser*, so the board itself never fetches it.
- *          - Screens: every display page mirrored from /screen.bmp?p=N,
+ *          - Screens: every display page mirrored from /screen.bmp?p=N (any board size),
  *            refreshed round-robin; click one to enlarge it with fast refresh
  *            (shows the radar animation).
  *          - History: charts from /history.csv for 24 h / 3 d / 7 d, plus a
@@ -31,7 +31,7 @@ static const char WEB_PAGE[] = R"HTML(<!doctype html>
   section { margin-bottom:32px; }
   .screens { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:14px; }
   .scr { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px; cursor:zoom-in; }
-  .scr img { width:100%; aspect-ratio:240/135; image-rendering:pixelated; display:block; border-radius:4px; background:#000; }
+  .scr img { width:100%; aspect-ratio:var(--ar,240/135); image-rendering:pixelated; display:block; border-radius:4px; background:#000; }
   .scr div { font-size:13px; color:var(--muted); margin:6px 2px 0; }
   .bar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
   button, a.btn { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 12px; font:inherit; font-size:13px; cursor:pointer; text-decoration:none; }
@@ -42,7 +42,7 @@ static const char WEB_PAGE[] = R"HTML(<!doctype html>
   .chart .c { position:relative; flex:1; min-height:0; }
   #empty { color:var(--muted); display:none; }
   #modal { position:fixed; inset:0; background:rgba(0,0,0,.85); display:none; align-items:center; justify-content:center; cursor:zoom-out; z-index:10; flex-direction:column; gap:10px; }
-  #modal img { width:min(96vw,1200px); aspect-ratio:240/135; image-rendering:pixelated; border-radius:6px; }
+  #modal img { width:min(96vw,1200px); aspect-ratio:var(--ar,240/135); image-rendering:pixelated; border-radius:6px; }
   #modal div { color:var(--muted); }
   footer { color:var(--muted); font-size:12px; padding:0 20px 24px; text-align:center; }
   @media (max-width:500px) { .charts { grid-template-columns:1fr; } main { padding:12px; } }
@@ -72,7 +72,7 @@ static const char WEB_PAGE[] = R"HTML(<!doctype html>
   </section>
 </main>
 <div id="modal"><img id="big" alt=""><div id="bigName"></div></div>
-<footer>Data: Open-Meteo · Met Office · AuroraWatch UK (Lancaster University) · RainViewer · © OpenStreetMap contributors · adsb.lol (ODbL) · adsbdb</footer>
+<footer>Data: WeatherFlow Tempest (local) · Open-Meteo · Met Office · AuroraWatch UK (Lancaster University) · RainViewer · © OpenStreetMap contributors · adsb.lol (ODbL) · adsbdb</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
@@ -84,12 +84,15 @@ async function loadNow() {
   try {
     const d = await (await fetch('/api/now.json')).json();
     pages = d.pages || pages;
+    if (d.screenW) document.documentElement.style.setProperty('--ar', `${d.screenW}/${d.screenH}`);
+    if (d.board) document.querySelector('h1').textContent = 'Weather Display · ' + d.board;
     document.getElementById('pills').innerHTML =
-      pill('', d.temp !== undefined ? `${d.temp.toFixed(1)}°C ${d.condition}` : undefined) +
+      pill(d.source || '', d.temp !== undefined ? `${d.temp.toFixed(1)}°C ${d.condition || ''}` : undefined) +
+      pill('Rain today', d.rainToday !== undefined ? d.rainToday.toFixed(1) + ' mm' : undefined) +
       pill('Wind', d.wind !== undefined ? `${Math.round(d.wind)} mph ${d.windDir}` : undefined) +
       pill('AQI', d.aqi !== undefined ? `${d.aqi} ${d.aqiBand}` : undefined) +
       pill('Warnings', d.warnings) + pill('Aurora', d.aurora) +
-      pill('Aircraft', d.aircraft) + pill('Battery', d.battery !== undefined ? d.battery + '%' : 'USB') +
+      pill('Aircraft', d.aircraft) + (d.battery !== undefined ? pill('Battery', d.battery + '%') : '') +
       pill('Wi-Fi', d.rssi + ' dBm') + pill('Up', Math.floor(d.uptimeMin / 60) + 'h' + (d.uptimeMin % 60) + 'm');
     document.getElementById('count').textContent = `${d.historyCount} records, every ${d.historyIntervalMin} min`;
     return d;
@@ -145,15 +148,17 @@ document.getElementById('modal').onclick = () => { focus = -1; document.getEleme
 // ---- history charts ------------------------------------------------------
 const AURORA_COLORS = ['#888', '#3fb950', '#e3b341', '#f0883e', '#f85149'];
 const CHARTS = [
-  { title: 'Temperature (°C)', series: [['temp_c', 'Temp', '#f0883e'], ['feels_c', 'Feels like', '#79c0ff', [4, 3]]] },
-  { title: 'Rain (mm per 15 min)', type: 'bar', series: [['rain_mm', 'Rain', '#58a6ff']] },
-  { title: 'Wind (mph)', series: [['wind_mph', 'Wind', '#a5d6ff'], ['gust_mph', 'Gust', '#d2a8ff', [4, 3]]] },
-  { title: 'Pressure (hPa)', series: [['pressure_hpa', 'Pressure', '#7ee787']] },
-  { title: 'Humidity (%)', series: [['humidity_pct', 'Humidity', '#56d4dd']] },
+  { title: 'Temperature (°C)', series: [['t_temp_c', 'Tempest', '#ffa657'], ['temp_c', 'Open-Meteo', '#8b949e', [4, 3]]] },
+  { title: 'Rain (mm per 15 min)', type: 'bar', series: [['t_rain_mm', 'Tempest', '#58a6ff'], ['rain_mm', 'Open-Meteo', '#30363d']] },
+  { title: 'Wind (mph)', series: [['t_wind_mph', 'Tempest avg', '#a5d6ff'], ['t_gust_mph', 'Tempest gust', '#d2a8ff', [4, 3]], ['wind_mph', 'Open-Meteo', '#8b949e', [2, 3]]] },
+  { title: 'Pressure (hPa)', series: [['t_pressure_hpa', 'Tempest', '#7ee787'], ['pressure_hpa', 'Open-Meteo', '#8b949e', [4, 3]]] },
+  { title: 'Humidity (%)', series: [['t_humidity_pct', 'Tempest', '#56d4dd'], ['humidity_pct', 'Open-Meteo', '#8b949e', [4, 3]]] },
+  { title: 'UV & solar', series: [['t_uv', 'UV index', '#e3b341'], ['t_solar_wm2', 'Solar W/m²', '#f0883e', [4, 3], 'y1']] },
+  { title: 'Lightning strikes', type: 'bar', series: [['t_strikes', 'Strikes', '#d2a8ff']] },
   { title: 'Air quality', series: [['eaqi', 'European AQI', '#e3b341'], ['pm25', 'PM2.5 µg/m³', '#ff7b72', null, 'y1']] },
   { title: 'Aurora activity (nT)', type: 'bar', series: [['aurora_nt', 'Activity', null]], aurora: true },
   { title: 'Aircraft within range', series: [['aircraft', 'Aircraft', '#d2a8ff']], step: true },
-  { title: 'Battery', series: [['battery_pct', 'Charge %', '#3fb950'], ['battery_v', 'Volts', '#8b949e', [4, 3], 'y1']] },
+  { title: 'Battery (V)', series: [['t_battery_v', 'Tempest sensor', '#3fb950'], ['battery_v', 'Display', '#8b949e', [4, 3]]] },
   { title: 'Wi-Fi signal (dBm)', series: [['rssi_dbm', 'RSSI', '#58a6ff']] },
 ];
 
@@ -190,6 +195,8 @@ async function loadHistory() {
   Chart.defaults.color = '#8b949e';
   Chart.defaults.borderColor = '#30363d';
   for (const def of CHARTS) {
+    // Skip charts with no data at all (e.g. no Tempest, or no battery on this board).
+    if (!def.series.some(([k]) => (cols[k] || []).some(v => v !== null))) continue;
     const card = document.createElement('div');
     card.className = 'chart';
     card.innerHTML = `<h3>${def.title}</h3><div class="c"><canvas></canvas></div>`;

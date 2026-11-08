@@ -4,6 +4,10 @@
  *
  * @details Everything a user is likely to want to tweak lives here so the
  *          rest of the code base never needs editing for routine changes.
+ *
+ *          Values that differ between boards (forecast length, radar size,
+ *          frame count) are wrapped in #ifndef and overridden per environment
+ *          from platformio.ini build_flags, e.g. -DRADAR_VIEW_W=520.
  */
 #pragma once
 
@@ -39,16 +43,31 @@
 #endif
 ///@}
 
+/** @name WeatherFlow Tempest (local UDP broadcasts) */
+///@{
+constexpr uint16_t TEMPEST_PORT = 50222;          ///< UDP port the hub broadcasts on.
+constexpr float TEMPEST_ELEVATION_M = 63.0f;      ///< Station height above sea level (for sea-level pressure).
+constexpr uint32_t TEMPEST_STALE_MS = 5UL * 60UL * 1000UL;  ///< Treat Tempest data as stale after this.
+///@}
+
 /** @name Rain radar */
 ///@{
 constexpr int RADAR_ZOOM = 7;                  ///< Tile zoom (7 = ~0.7 km/px here; RainViewer's max).
 #define RADAR_COLOR_SCHEME  "2"                ///< RainViewer palette id.
-constexpr uint8_t RADAR_FRAMES = 12;           ///< Frames in the loop (10 min apart = 2 h).
+#ifndef RADAR_FRAMES
+#define RADAR_FRAMES 12                        ///< Frames in the loop (10 min apart).
+#endif
+#ifndef RADAR_VIEW_W
+#define RADAR_VIEW_W 160                       ///< Radar viewport width, pixels.
+#endif
+#ifndef RADAR_VIEW_H
+#define RADAR_VIEW_H 110                       ///< Radar viewport height, pixels.
+#endif
 constexpr uint16_t RADAR_FRAME_MS = 450;       ///< Animation step.
 constexpr uint8_t RADAR_HOLD_STEPS = 4;        ///< Extra steps the newest frame is held.
 ///@}
 
-/** @name Alert light (on-board NeoPixel) */
+/** @name Alert light (Feather on-board NeoPixel) */
 ///@{
 constexpr bool LED_ENABLED = true;             ///< Set false to keep the LED dark.
 constexpr uint8_t LED_MAX_BRIGHTNESS = 40;     ///< 0-255.
@@ -56,9 +75,11 @@ constexpr uint8_t LED_MAX_BRIGHTNESS = 40;     ///< 0-255.
 
 /** @name History log and web server */
 ///@{
+#ifndef HOSTNAME
 #define HOSTNAME "weather"                     ///< mDNS name: http://weather.local
+#endif
 constexpr uint32_t HISTORY_INTERVAL_S = 15 * 60;  ///< One record per quarter hour.
-constexpr uint16_t HISTORY_CAPACITY = 8 * 96;     ///< 8 days of quarter-hours (~26 KB).
+constexpr uint16_t HISTORY_CAPACITY = 8 * 96;     ///< 8 days of quarter-hours.
 constexpr uint8_t HISTORY_DEFAULT_DAYS = 7;       ///< Web charts default range.
 ///@}
 
@@ -78,16 +99,22 @@ constexpr uint32_t RADAR_INTERVAL_MS       = 10UL * 60UL * 1000UL; ///< New rada
 constexpr uint32_t FLIGHTS_INTERVAL_MS     = 30UL * 1000UL;        ///< Aircraft positions.
 constexpr uint32_t AURORA_INTERVAL_MS      = 5UL * 60UL * 1000UL;  ///< AuroraWatch (server caches 3 min).
 constexpr uint32_t BATTERY_INTERVAL_MS     = 5UL * 1000UL;         ///< Fuel-gauge poll period.
-constexpr uint32_t PAGE_ROTATE_MS          = 12UL * 1000UL;        ///< Auto page change (0 = off).
+constexpr uint32_t PAGE_ROTATE_MS          = 12UL * 1000UL;        ///< Feather auto page change (0 = off).
 constexpr uint32_t RENDER_INTERVAL_MS      = 250UL;                ///< Screen redraw period.
 constexpr uint32_t SERIAL_LOG_INTERVAL_MS  = 30UL * 1000UL;        ///< Diagnostic log period.
 ///@}
 
 /** @name Forecast layout */
 ///@{
-constexpr uint8_t HOURLY_COLUMNS = 6;   ///< Columns shown on the hourly page.
-constexpr uint8_t HOURLY_STEP    = 2;   ///< Hours between hourly columns.
-constexpr uint8_t DAILY_DAYS     = 5;   ///< Days shown on the daily page.
+#ifndef HOURLY_COLUMNS
+#define HOURLY_COLUMNS 6     ///< Columns shown on the hourly view.
+#endif
+#ifndef HOURLY_STEP
+#define HOURLY_STEP 2        ///< Hours between hourly columns.
+#endif
+#ifndef DAILY_DAYS
+#define DAILY_DAYS 5         ///< Days of daily forecast fetched and shown.
+#endif
 ///@}
 
 /** @brief Hourly samples requested/stored (enough for the columns plus margin). */

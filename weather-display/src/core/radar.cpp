@@ -25,20 +25,8 @@ constexpr size_t FRAME_BYTES = RadarLoop::W * RadarLoop::H * sizeof(uint16_t);
 uint16_t *basemap = nullptr;  ///< Cached base map (same viewport), PSRAM.
 bool basemapReady = false;    ///< True once all base-map tiles decoded.
 
-/** @brief A frame listed in RainViewer's index. */
-struct FrameRef {
-  time_t time;   ///< Observation time.
-  String path;   ///< URL prefix "<host><path>".
-};
-
 /** @brief Builds the URL for tile (x, y) at RADAR_ZOOM. */
 using TileUrl = std::function<String(int x, int y)>;
-
-/** @brief Allocate from PSRAM, falling back to internal RAM. */
-uint16_t *allocFrame() {
-  void *p = heap_caps_malloc(FRAME_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  return static_cast<uint16_t *>(p ? p : malloc(FRAME_BYTES));
-}
 
 /**
  * @brief  Viewport's top-left corner in global pixel coordinates.
@@ -85,7 +73,7 @@ bool composeTiles(uint16_t *dst, const TileUrl &url, PngTile::Mode mode, const c
 /** @brief Download and cache the base map if not already done. */
 bool ensureBasemap() {
   if (basemapReady) return true;
-  if (!basemap) basemap = allocFrame();
+  if (!basemap) basemap = Radar::allocFrame();
   if (!basemap) return false;
   memset(basemap, 0, FRAME_BYTES);
   basemapReady = composeTiles(
@@ -98,13 +86,16 @@ bool ensureBasemap() {
   return basemapReady;
 }
 
-/**
- * @brief  Read the newest RADAR_FRAMES frames from RainViewer's index.
- * @param[out] refs   Oldest first.
- * @param[out] count  Number filled.
- * @return true on success.
- */
-bool listFrames(FrameRef (&refs)[RADAR_FRAMES], uint8_t &count) {
+}  // namespace
+
+namespace Radar {
+
+uint16_t *allocFrame() {
+  void *p = heap_caps_malloc(FRAME_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return static_cast<uint16_t *>(p ? p : malloc(FRAME_BYTES));
+}
+
+bool listFrames(RadarFrameRef (&refs)[RADAR_FRAMES], uint8_t &n) {
   JsonDocument filter;
   filter["host"] = true;
   filter["radar"]["past"][0]["time"] = true;
@@ -119,67 +110,22 @@ bool listFrames(FrameRef (&refs)[RADAR_FRAMES], uint8_t &count) {
   const String host = doc["host"] | "https://tilecache.rainviewer.com";
   JsonArray past = doc["radar"]["past"];
   const size_t first = past.size() > RADAR_FRAMES ? past.size() - RADAR_FRAMES : 0;
-  count = 0;
+  n = 0;
   for (size_t i = first; i < past.size(); ++i) {
-    refs[count].time = past[i]["time"] | 0;
-    refs[count].path = host + (past[i]["path"] | "");
-    ++count;
+    refs[n].time = past[i]["time"] | 0;
+    refs[n].path = host + (past[i]["path"] | "");
+    ++n;
   }
-  return count > 0;
+  return n > 0;
 }
 
-/** @brief Find a frame with time @p t in @p loop, or nullptr. */
-const RadarFrame *findFrame(const RadarLoop &loop, time_t t) {
-  for (uint8_t i = 0; i < loop.count; ++i) {
-    if (loop.frames[i].time == t) return &loop.frames[i];
-  }
-  return nullptr;
-}
-
-}  // namespace
-
-namespace Radar {
-
-bool allocate(RadarLoop &loop) {
-  for (RadarFrame &f : loop.frames) {
-    if (!f.pixels) f.pixels = allocFrame();
-    if (!f.pixels) return false;
-  }
-  return true;
-}
-
-bool fetch(RadarLoop &staging, const RadarLoop &current) {
-  if (!staging.frames[RADAR_FRAMES - 1].pixels || !ensureBasemap()) return false;
-
-  FrameRef refs[RADAR_FRAMES];
-  uint8_t n = 0;
-  if (!listFrames(refs, n)) return false;
-
-  uint8_t reused = 0, downloaded = 0;
-  staging.count = 0;
-  for (uint8_t i = 0; i < n; ++i) {
-    RadarFrame &dst = staging.frames[staging.count];
-    if (const RadarFrame *have = findFrame(current, refs[i].time)) {
-      memcpy(dst.pixels, have->pixels, FRAME_BYTES);  // Already composed earlier.
-      ++reused;
-    } else {
-      memcpy(dst.pixels, basemap, FRAME_BYTES);
-      const String &base = refs[i].path;
-      const bool ok = composeTiles(
-          dst.pixels,
-          [&](int x, int y) { return base + "/256/" + RADAR_ZOOM + "/" + x + "/" + y + "/" RADAR_COLOR_SCHEME "/1_1.png"; },
-          PngTile::Mode::AlphaBlend, "radar");
-      if (!ok) continue;  // Skip a frame that failed; keep the rest of the loop.
-      ++downloaded;
-    }
-    dst.time = refs[i].time;
-    ++staging.count;
-  }
-
-  staging.valid = staging.count > 0;
-  staging.fetchedAtMs = millis();
-  Serial.printf("[radar] loop of %u frames (%u new, %u reused)\n", staging.count, downloaded, reused);
-  return staging.valid;
+bool compose(const RadarFrameRef &ref, uint16_t *dst) {
+  if (!dst || !ensureBasemap()) return false;
+  memcpy(dst, basemap, FRAME_BYTES);
+  const String &base = ref.path;
+  return composeTiles(
+      dst, [&](int x, int y) { return base + "/256/" + RADAR_ZOOM + "/" + x + "/" + y + "/" RADAR_COLOR_SCHEME "/1_1.png"; },
+      PngTile::Mode::AlphaBlend, "radar");
 }
 
 }  // namespace Radar

@@ -18,7 +18,7 @@
 
 #include <vector>
 
-/** @brief One logged sample (34 bytes, packed, scaled integers). */
+/** @brief One logged sample (packed, scaled integers; layout version 2). */
 struct __attribute__((packed)) HistoryRecord {
   uint32_t time;        ///< UTC epoch seconds.
   int16_t temp10;       ///< Air temperature, 0.1 deg C.
@@ -38,7 +38,19 @@ struct __attribute__((packed)) HistoryRecord {
   uint8_t aircraft;     ///< Aircraft within range (capped at 255).
   uint16_t aurora10;    ///< Latest AuroraWatch activity, 0.1 nT.
   uint8_t auroraLevel;  ///< AuroraLevel enum value.
-  uint8_t flags;        ///< Bit 0 weather, 1 air, 2 battery, 3 aurora valid.
+  uint8_t flags;        ///< Bit 0 weather, 1 air, 2 battery, 3 aurora, 4 Tempest valid.
+  // --- Tempest station (valid when HF_TEMPEST) ---
+  int16_t tTemp10;      ///< Air temperature, 0.1 deg C.
+  uint8_t tHumidity;    ///< Relative humidity, %.
+  uint16_t tPressure10; ///< Sea-level pressure, 0.1 hPa.
+  uint16_t tWind10;     ///< Average wind at log time, 0.1 mph.
+  uint16_t tGust10;     ///< Highest gust in the interval, 0.1 mph.
+  uint16_t tWindDir;    ///< Wind direction, degrees.
+  uint16_t tRain100;    ///< Rain in the interval, 0.01 mm.
+  uint8_t tUv10;        ///< UV index, 0.1 units.
+  uint16_t tSolar;      ///< Solar radiation, W/m2.
+  uint8_t tStrikes;     ///< Lightning strikes in the interval.
+  uint16_t tBattMv;     ///< Sensor battery, mV.
 };
 
 /** @name HistoryRecord::flags bits */
@@ -47,6 +59,7 @@ constexpr uint8_t HF_WEATHER = 1 << 0;
 constexpr uint8_t HF_AIR = 1 << 1;
 constexpr uint8_t HF_BATTERY = 1 << 2;
 constexpr uint8_t HF_AURORA = 1 << 3;
+constexpr uint8_t HF_TEMPEST = 1 << 4;
 ///@}
 
 namespace History {

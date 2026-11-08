@@ -1,489 +1,324 @@
-# Weather Display — Design
+# Weather Station — Design
 
-Firmware for the **Adafruit Feather ESP32-S3 Reverse TFT** that turns the board into a small home weather station. It shows:
+Firmware for two ESP32-S3 displays that share one core:
 
-- current conditions, an hourly forecast and a 5-day forecast
-- a **rain radar** map with a 2-hour "rain soon" forecast
-- **air quality** (AQI, pollutants, UV, pollen)
-- **Met Office warnings** for Lancashire
-- **sun and moon**: sunrise, sunset, day length and moon phase
-- **nearby aircraft** with the nearest flight's route
-- device health: Wi-Fi signal and battery
-
-| Item | Value |
-|---|---|
-| MCU | ESP32-S3, dual-core 240 MHz, 2 MB PSRAM, 4 MB flash |
-| Display | 1.14" ST7789 IPS, 240 × 135, SPI |
-| Battery gauge | MAX17048 (this board) or LC709203F (older revisions), I2C |
-| Inputs | D0 = next page, D1 = previous page, D2 = refresh all data |
-| Framework | Arduino-ESP32 3.x via PlatformIO |
-| Units | °C, mph (wind), 24-hour clock; aviation uses ft and knots |
-| Location | 53.826679, −2.452993 (Lancashire), time zone Europe/London |
-
-### Data sources
-
-| Feature | Source | Format | Refresh |
+| Board | Display | Input | UI |
 |---|---|---|---|
-| Forecast, 15-min rain, sun times | [Open-Meteo](https://open-meteo.com) | JSON | 10 min |
-| Air quality, UV, pollen | Open-Meteo Air Quality API (CAMS) | JSON | 30 min |
-| Weather warnings | Met Office NSWWS RSS, region `nw` | XML | 15 min |
-| Rain radar frames | [RainViewer](https://www.rainviewer.com/api.html) | PNG tiles | 10 min |
-| Map under the radar | [CARTO](https://carto.com/basemaps) `dark_all` (© OpenStreetMap) | PNG tiles | once |
-| Aircraft positions | [adsb.lol](https://api.adsb.lol) (ODbL) | JSON | 30 s |
-| Flight routes | [adsbdb](https://www.adsbdb.com) | JSON | per new nearest flight, cached |
-| Moon phase | calculated on the board | — | — |
-| Time | SNTP (`pool.ntp.org`, `time.google.com`) | — | continuous |
+| **Elecrow CrowPanel 7" Basic** (ESP32-S3-WROOM-1-N4R8) | 800 × 480 RGB TFT | GT911 capacitive touch | 9 touch pages with a tab bar and swipe |
+| **Adafruit Feather ESP32-S3 Reverse TFT** | 240 × 135 ST7789 | 3 buttons | 9 auto-rotating pages |
 
-None of these need an account or API key.
+Both show local conditions, forecast, an animated rain radar with a 2-hour nowcast, air quality, Met Office warnings, AuroraWatch UK alerts, sun and moon, nearby flights, history, and device health. Both also serve a web dashboard on the LAN. Live local conditions come from a **WeatherFlow Tempest** station via its UDP broadcasts.
+
+### Data sources (no accounts or API keys)
+
+| Feature | Source | Transport | Refresh |
+|---|---|---|---|
+| Live temp, humidity, pressure, wind, rain, UV, solar, lightning | **Tempest hub** (LAN) | UDP broadcast :50222 | 3 s wind, 1 min obs |
+| Forecast, 15-min rain nowcast, sun times | Open-Meteo | HTTPS JSON | 10 min |
+| Air quality, UV, pollen | Open-Meteo Air Quality (CAMS) | HTTPS JSON | 30 min |
+| Weather warnings | Met Office RSS, region `nw`, filtered to Lancashire | HTTPS XML | 15 min |
+| Aurora alerts | AuroraWatch UK (Lancaster University) | HTTPS XML | 5 min |
+| Radar frames | RainViewer | HTTPS JSON + PNG tiles | 10 min |
+| Base map | OpenStreetMap standard tiles, restyled dark on device | HTTPS PNG | once per boot |
+| Aircraft | adsb.lol (ODbL) | HTTPS JSON (HTTP/1.1) | 30 s |
+| Flight routes | adsbdb | HTTPS JSON | per callsign, cached |
+| Moon phase | computed on device | — | — |
+| Time | SNTP | UDP | continuous |
 
 ---
 
-## 1. C4 Level 1 — System Context
+## 1. C4 Level 1 — System context
 
 ```mermaid
 C4Context
-  title System Context — Weather Display
+  title System Context — Weather Station
 
-  Person(user, "User", "Glances at the display; presses D0/D1/D2")
-  System(device, "Weather Display", "ESP32-S3 Reverse TFT Feather running this firmware")
+  Person(user, "User", "Looks at / touches the displays; opens the web dashboard")
+  System(cp, "CrowPanel 7\" station", "800x480 touch display")
+  System(fe, "Feather station", "240x135 display")
 
+  System_Ext(tempest, "Tempest hub", "LAN UDP broadcasts on :50222")
   System_Ext(meteo, "Open-Meteo", "Forecast + Air Quality APIs")
-  System_Ext(mo, "Met Office", "Severe-weather warnings RSS")
-  System_Ext(rv, "RainViewer", "Radar frame index + tiles")
-  System_Ext(carto, "CARTO", "Dark base-map tiles")
-  System_Ext(adsb, "adsb.lol", "Live ADS-B aircraft positions")
-  System_Ext(adsbdb, "adsbdb", "Callsign → route lookup")
-  System_Ext(ntp, "NTP servers", "Time")
-  System_Ext(pc, "Developer PC", "PlatformIO build, USB flashing, serial log")
+  System_Ext(mo, "Met Office", "Warnings RSS")
+  System_Ext(aw, "AuroraWatch UK", "Geomagnetic alert XML")
+  System_Ext(rv, "RainViewer + OSM", "Radar and base-map tiles")
+  System_Ext(adsb, "adsb.lol + adsbdb", "Aircraft and routes")
+  System_Ext(ntp, "NTP", "Time")
 
-  Rel(user, device, "Views / presses buttons")
-  Rel(device, meteo, "HTTPS JSON")
-  Rel(device, mo, "HTTPS XML")
-  Rel(device, rv, "HTTPS JSON + PNG")
-  Rel(device, carto, "HTTPS PNG")
-  Rel(device, adsb, "HTTPS JSON")
-  Rel(device, adsbdb, "HTTPS JSON")
-  Rel(device, ntp, "SNTP")
-  Rel(pc, device, "Flash + logs", "USB CDC")
+  Rel(user, cp, "Touch / view")
+  Rel(user, fe, "Buttons / view")
+  Rel(user, cp, "http://weather7.local")
+  Rel(tempest, cp, "UDP broadcast")
+  Rel(tempest, fe, "UDP broadcast")
+  Rel(cp, meteo, "HTTPS")
+  Rel(cp, mo, "HTTPS")
+  Rel(cp, aw, "HTTPS")
+  Rel(cp, rv, "HTTPS")
+  Rel(cp, adsb, "HTTPS")
+  Rel(cp, ntp, "SNTP")
 ```
 
-## 2. C4 Level 2 — Containers
+The Feather talks to the same external systems; those arrows are left off for readability.
 
-For embedded firmware, the "containers" are the run-time execution units and hardware blocks on the board.
+## 2. C4 Level 2 — Containers (one board)
 
 ```mermaid
 C4Container
-  title Containers — inside the Feather
+  title Containers — inside one board
 
   Person(user, "User")
-  System_Ext(net, "Internet data sources", "Open-Meteo, Met Office, RainViewer, CARTO, adsb.lol, adsbdb, NTP")
+  System_Ext(lan, "Tempest hub", "UDP :50222")
+  System_Ext(net, "Internet APIs", "Open-Meteo, Met Office, AuroraWatch, RainViewer, OSM, adsb.lol, adsbdb")
 
-  System_Boundary(board, "Feather ESP32-S3 Reverse TFT") {
-    Container(ui, "UI loop (core 1)", "Arduino loop()", "Buttons, page rotation, battery reads, rendering")
-    Container(worker, "Data worker (core 0)", "FreeRTOS task", "Downloads and parses every feed on a schedule")
-    ContainerDb(shared, "Shared data", "RAM + PSRAM, mutex", "WeatherData, AirQualityData, WarningList, RadarImage, FlightList")
-    Container(stack, "Wi-Fi / TCP / TLS", "ESP-IDF, lwIP, mbedTLS", "Station mode, HTTPS, SNTP")
-    Container(tft, "ST7789 display", "SPI", "240x135 RGB565")
-    Container(gauge, "Fuel gauge", "MAX17048, I2C", "Voltage, %, charge rate")
-    Container(btn, "Buttons", "GPIO 0/1/2", "")
+  System_Boundary(board, "ESP32-S3 board") {
+    Container(worker, "Data worker (core 0)", "FreeRTOS task", "Schedules and runs every HTTPS feed")
+    Container(udp, "Tempest listener", "AsyncUDP task", "Parses and merges station broadcasts")
+    ContainerDb(store, "Shared data store", "RAM + PSRAM, one mutex", "Weather, air, warnings, aurora, flights, radar ring, Tempest")
+    Container(ui, "UI loop (core 1)", "Arduino loop()", "Touch/buttons, rendering, backlight, history logging")
+    Container(web, "Web server (core 1)", "FreeRTOS task", "Dashboard, screenshots, JSON, CSV")
+    ContainerDb(fs, "History log", "LittleFS ring file", "8 days x 96 quarter-hour records")
+    Container(hw, "Display + input", "RGB/SPI panel, GT911 or buttons", "")
   }
 
-  Rel(worker, stack, "HTTPS GET")
-  Rel(stack, net, "Internet")
-  Rel(worker, shared, "Publish (copy/swap under lock)")
-  Rel(ui, shared, "Read under lock")
-  Rel(ui, tft, "Frame push")
-  Rel(ui, gauge, "Poll")
-  Rel(btn, ui, "Press")
-  Rel(user, btn, "")
-  Rel(tft, user, "")
+  Rel(worker, net, "HTTPS")
+  Rel(lan, udp, "UDP broadcast")
+  Rel(worker, store, "publish under lock")
+  Rel(udp, store, "merge under lock")
+  Rel(ui, store, "read under lock")
+  Rel(web, store, "read under lock")
+  Rel(ui, fs, "append every 15 min")
+  Rel(web, fs, "read for CSV")
+  Rel(ui, hw, "frames / touch")
+  Rel(user, hw, "")
+  Rel(user, web, "browser")
 ```
 
 ## 3. C4 Level 3 — Components
 
 ```mermaid
 C4Component
-  title Components — application firmware
+  title Components — shared core + board apps
 
-  Container_Boundary(fw, "Firmware") {
-    Component(main, "main.cpp", "UI loop", "setup(), loop(), buttons, page rotation, render under lock")
-    Component(ds, "DataService", "data_service.*", "Worker task, feed table, mutex, staging/publish")
-    Component(weather, "Weather", "weather.*", "Forecast + 15-min nowcast → WeatherData; RainSoon logic")
-    Component(air, "AirQuality", "air_quality.*", "EAQI, pollutants, UV, pollen bands")
-    Component(warn, "Warnings", "warnings.*", "Met Office RSS → WarningList")
-    Component(radar, "Radar", "radar.*", "Base map cache + radar overlay → RadarImage")
-    Component(png, "PngTile", "png_tile.*", "Tile download to PSRAM, PNGdec line decode, alpha overlay")
-    Component(flights, "Flights", "flights.*", "adsb.lol aircraft, adsbdb routes, route cache")
-    Component(https, "Https", "https_get.*", "Shared HTTPS GET helper")
-    Component(geo, "Geo", "geo.*", "Web-Mercator maths, distance, bearing")
-    Component(astro, "Astro", "astro.*", "Moon phase, HH:MM parsing")
-    Component(net, "Net", "connectivity.*", "Wi-Fi, RSSI, SNTP clock")
-    Component(batt, "Battery", "battery.*", "Fuel-gauge wrapper")
-    Component(ui, "Ui", "src/ui/*", "Canvas, status bar, 9 page renderers")
-    Component(icons, "Icons", "icons.*", "Vector weather, sun, moon, aircraft icons")
+  Container_Boundary(core, "src/core + include (shared)") {
+    Component(ds, "DataService", "data_service.*", "Worker task, feed table, mutex, radar ring")
+    Component(tp, "Tempest", "tempest.*", "UDP parse, de-dup, derived values, trends")
+    Component(wx, "Weather", "weather.*", "Forecast + nowcast, RainSoon")
+    Component(aq, "AirQuality", "air_quality.*", "")
+    Component(wn, "Warnings", "warnings.*", "")
+    Component(au, "Aurora", "aurora.*", "")
+    Component(fl, "Flights", "flights.*", "Aircraft, route cache, on-demand lookups")
+    Component(rd, "Radar + PngTile", "radar.*, png_tile.*", "Tile download, dark map, alpha blend")
+    Component(hi, "History + Recorder", "history.*, recorder.*", "Ring file, 15-min records")
+    Component(wu, "WebUi", "web_ui.*, web_page.h", "Board-agnostic dashboard")
+    Component(ic, "Icons", "icons.h", "Header-only templates for any GFX library")
+  }
+  Container_Boundary(cpb, "src/crowpanel") {
+    Component(disp, "Display", "display.*", "LovyanGFX RGB panel, GT911, PCA9557 reset")
+    Component(cui, "Ui + pages", "ui/*.cpp", "Sprite frame, tab bar, swipe, 9 pages")
+  }
+  Container_Boundary(feb, "src/feather") {
+    Component(fui, "Ui + pages", "ui/*.cpp", "Adafruit_GFX canvas, 9 pages")
+    Component(bat, "Battery + StatusLed", "", "MAX17048 gauge, NeoPixel alerts")
   }
 
-  Rel(main, ds, "begin(), refreshAll(), Guard")
-  Rel(main, ui, "compose(), present()")
-  Rel(main, batt, "update()")
-  Rel(ds, weather, "fetch()")
-  Rel(ds, air, "fetch()")
-  Rel(ds, warn, "fetch()")
-  Rel(ds, radar, "fetch()")
-  Rel(ds, flights, "fetch()")
-  Rel(radar, png, "download(), blit()")
-  Rel(radar, geo, "worldPixel()")
-  Rel(flights, geo, "distance / bearing fallback")
-  Rel(weather, https, "get()")
-  Rel(air, https, "get()")
-  Rel(warn, https, "get()")
-  Rel(flights, https, "get()")
-  Rel(png, https, "get()")
-  Rel(ui, icons, "draw*()")
-  Rel(ui, astro, "moon()")
+  Rel(ds, wx, "fetch")
+  Rel(ds, aq, "fetch")
+  Rel(ds, wn, "fetch")
+  Rel(ds, au, "fetch")
+  Rel(ds, fl, "fetch / resolvePending")
+  Rel(ds, rd, "listFrames / compose")
+  Rel(tp, ds, "tempestMutable()")
+  Rel(cui, ds, "read")
+  Rel(cui, ic, "draw")
+  Rel(fui, ic, "draw")
+  Rel(cui, fl, "requestRoute (tap)")
+  Rel(wu, cui, "snapshot hook")
+  Rel(wu, fui, "snapshot hook")
 ```
 
 ### Source layout
 
 ```
 weather-display/
-├── platformio.ini            Board, 1.9 MB app partition, libraries, pre-build script
-├── scripts/skip_png_simd.py  Excludes PNGdec's unused S3 SIMD assembly from the build
-├── Doxyfile                  API docs: `doxygen Doxyfile` → docs/api/html
-├── include/                  Public module APIs (one namespace each)
-│   ├── config.h              Location, regions, intervals, layout, button pins
-│   ├── secrets.h             Wi-Fi credentials (git-ignored)
-│   ├── theme.h               RGB565 palette
-│   ├── connectivity.h        Net::
-│   ├── battery.h             Battery:: + BatteryStatus
-│   ├── https_get.h           Https::get()
-│   ├── weather.h             Weather:: + WeatherData, Nowcast, RainSoon
-│   ├── air_quality.h         AirQuality:: + AirQualityData
-│   ├── warnings.h            Warnings:: + WarningList
-│   ├── geo.h                 Geo::
-│   ├── png_tile.h            PngTile::
-│   ├── radar.h               Radar:: + RadarImage
-│   ├── flights.h             Flights:: + FlightList, Aircraft, FlightRoute
-│   ├── astro.h               Astro:: + MoonInfo
-│   ├── data_service.h        DataService:: (worker task + shared data)
-│   ├── icons.h               Icons::
-│   └── ui.h                  Ui::, Page, UiModel
-├── src/                      Implementations + main.cpp
-│   └── ui/                   ui.cpp (canvas, status bar), ui_draw.h (internal),
-│                             pages_weather, pages_environment, page_radar,
-│                             page_sky, page_flights, page_system
-└── docs/DESIGN.md            This document
+├── platformio.ini            Envs: crowpanel_7 (default), feather_s3_reverse_tft
+├── partitions/crowpanel_4mb.csv  3 MB app + 896 KB LittleFS (4 MB flash, no OTA)
+├── scripts/                  skip_png_simd.py (build), flash.ps1 (Feather upload helper)
+├── include/                  Shared module APIs: config, weather, tempest, radar, flights, ...
+├── src/core/                 Shared implementations (+ png_simd_fallback.c)
+├── src/crowpanel/            main, display (LovyanGFX), board_config, ui/ (9 pages)
+└── src/feather/              main, battery, status_led, ui/ (9 pages)
 ```
 
-Each module exposes a small namespace API in `include/` and keeps its state private in an anonymous namespace. Data flows one way: **worker → shared data → renderer**.
-
-> **Naming note:** the connectivity module isn't called `network.h`. Arduino-ESP32 3.x has its own `Network.h`, and on Windows (case-insensitive file names) a local `network.h` shadows it and breaks the WiFi library.
+Each environment compiles `src/core` plus its own board folder (`build_src_filter`). Board-specific sizes are passed as build flags: forecast days, hourly samples, radar viewport and frame count, and hostname.
 
 ---
 
 ## 4. Concurrency
 
-Network calls take 0.5–3 s each. A radar refresh downloads up to 5 files, so doing this on the UI loop would freeze buttons and the clock. Downloads therefore run in a **FreeRTOS worker task on core 0** (alongside the Wi-Fi stack). The Arduino `loop()` on **core 1** only reads data.
+| Task | Core | Does |
+|---|---|---|
+| `data` worker | 0 | All HTTPS feeds (see table), on-demand route lookups every 0.5 s |
+| AsyncUDP | any | Tempest packets → shared store |
+| Arduino `loop()` | 1 | Touch/buttons, render, backlight, history |
+| `web` | 1 | HTTP server |
+
+- **One data mutex** guards the shared store. Writers fill a private staging object and copy it in under the lock, so a failed fetch never blanks the screen. Readers draw while holding the lock.
+- **CrowPanel canvas lock:** the display loop and web snapshots both compose into the one 800×480 sprite, so a second mutex serialises them. Lock order is always canvas → data.
+- **Radar ring:** `RADAR_FRAMES` buffers plus one spare. New frames are composed into the spare without a lock, then inserted by moving pointers under the lock (the oldest buffer becomes the new spare). Only frames newer than the newest held are downloaded.
 
 ```mermaid
 sequenceDiagram
-  autonumber
-  participant L as UI loop (core 1)
-  participant M as Mutex
-  participant S as Shared data
-  participant W as Worker (core 0)
-  participant API as Internet
-
-  W->>API: HTTPS GET (no lock held)
-  API-->>W: body
-  W->>W: parse into private staging object
-  W->>M: lock
-  W->>S: copy staging → shared (radar: swap buffer pointers)
-  W->>M: unlock
-  loop every 250 ms
-    L->>M: lock
-    L->>S: read via UiModel references
-    L->>L: compose frame into canvas
-    L->>M: unlock
-    L->>L: push canvas to TFT (SPI, unlocked)
+  participant W as Worker
+  participant S as Store (locked)
+  participant L as UI loop
+  W->>W: compose frame into spare (no lock)
+  W->>S: lock, shift ring, spare <-> oldest, unlock
+  loop each render
+    L->>S: lock, draw page into sprite, unlock
+    L->>L: push sprite to panel
   end
 ```
 
-Rules:
+---
 
-- The lock is held only for memory copies (worker) or canvas drawing (UI, ≈10 ms), never during network I/O or SPI.
-- A failed or partial fetch never touches shared data, so the last good data stays on screen.
-- The radar uses **double buffering**: the worker composes into `radarStaging`, then `std::swap` exchanges it with `radarShared`. Only the pixel pointers move.
-- `DataService::refreshAll()` (D2) sets an atomic flag; the worker runs every feed on its next tick.
+## 5. WeatherFlow Tempest
 
-### Feed scheduling
+The hub broadcasts JSON to the whole LAN on UDP 50222. Every packet arrived **twice** on this network, so each message type is de-duplicated by its timestamp.
 
-Feeds are a table in `data_service.cpp`, so adding a source is one entry:
+| Message | Used for |
+|---|---|
+| `rapid_wind` (3 s) | Live compass needle and "Live" speed |
+| `obs_st` (1 min) | All readings (see below), trends, rain/lightning totals |
+| `evt_precip`, `evt_strike` | Rain-start time; last strike distance/time |
+| `device_status` | Sensor battery V, radio RSSI, uptime, fault bits |
+| `hub_status` | Hub firmware, Wi-Fi RSSI, uptime |
 
-| Feed | Interval | Retry after failure |
+`obs_st` fields used (in API v171 order): wind lull/avg/gust (m/s → mph), direction, station pressure, temperature, humidity, illuminance, UV, solar radiation, rain in the minute, precipitation type, strike distance and count, battery.
+
+**Derived on device:**
+
+| Value | Method |
+|---|---|
+| Sea-level pressure | `P × (1 − 0.0065h / (T + 0.0065h + 273.15))^−5.257`, h = `TEMPEST_ELEVATION_M` |
+| Feels like | Wind chill below 10 °C (wind over 4.8 km/h), Rothfusz heat index above 26.7 °C |
+| Dew point | Magnus formula |
+| Rain today / last hour | Sum of per-minute rain; resets at local midnight; restored after reboot from the history log |
+| Pressure trend | Change across up to 3 h of 1-minute samples (shown after 30 min) |
+| Strikes today / hour | Same scheme as rain |
+
+If no observation has arrived for 5 minutes, the UI falls back to Open-Meteo values and labels the source.
+
+---
+
+## 6. CrowPanel 7" hardware
+
+| Function | Detail |
+|---|---|
+| MCU | ESP32-S3, 4 MB QIO flash, **8 MB octal PSRAM** (`qio_opi`) |
+| Panel | 800×480, 16-bit RGB565 parallel: B 15,7,6,5,4 · G 9,46,3,8,16,1 · R 14,21,47,48,45; DE 41, VSYNC 40, HSYNC 39, PCLK 0 |
+| Timing | PCLK 13 MHz, HSYNC 40/48/40, VSYNC 1/31/13 (front/pulse/back), PCLK active-negative |
+| Backlight | GPIO 2, PWM; dimmed from one hour after sunset until sunrise |
+| Touch | GT911 on I2C 19/20 |
+| V3.0 boards | A **PCA9557** at 0x18 drives the GT911's RST (IO0) and INT (IO1). At boot the firmware pulses RST with INT low, so the GT911 answers at **0x5D** (detected automatically) |
+| USB | CH340 to UART0 (`ARDUINO_USB_CDC_ON_BOOT=0`) |
+
+### Rendering
+
+- Every page is drawn into a full-screen 16-bit `LGFX_Sprite` in PSRAM, then copied to the panel's frame buffer. That copy takes about 50 ms, and drawing a frame about 150 ms.
+- Redraw rate: once a second, every 450 ms on the radar page (animation), and immediately after any tap or page change.
+- Fonts: LovyanGFX DejaVu 12–72 px bitmap fonts, plus 72 px drawn at 1.5×. They are ASCII-only, so the degree sign is drawn as a ring.
+- Web snapshots: compose the page off-screen, then average 2×2 blocks into a 400×240 image (the sprite stores byte-swapped RGB565).
+
+### Pages and touch
+
+| Page | Content | Touch |
 |---|---|---|
-| weather | 10 min | 60 s |
-| air | 30 min | 60 s |
-| warnings | 15 min | 60 s |
-| flights | 30 s | 60 s |
-| radar | 10 min | 60 s |
+| Now | Tempest temp/feels/high-low, humidity, dew point, pressure + trend, rain today, UV/solar; wind compass with live needle; outlook strip with next 8 hours | — |
+| Forecast | 24-hour temperature line with rain-probability bars and 3-hourly icons; 7-day cards | — |
+| Radar | 520×380 map (~375 × 275 km), 9-frame loop; 2-hour rain chart | Tap map: pause; left/right third steps frames; middle resumes |
+| Air | EAQI + scale, pollutants vs WHO guideline, UV, pollen | — |
+| Sky | Sun arc with live position, sunrise/sunset, daylight, sunshine; moon phase | — |
+| Alerts | Met Office warnings; AuroraWatch level, 24 h chart; Tempest lightning | — |
+| Flights | North-up scope with labelled aircraft (colour = altitude); details card | **Tap a plane** to select it and fetch its route; tap empty sky for nearest |
+| History | 24 h / 3 d / 7 d charts: temperature, pressure, wind/gust, rain | Range buttons |
+| System | Network, Tempest hub/sensor, display health, feed ages | — |
 
-### Start-up
+Navigation: tap a tab, swipe left/right, or tap the status-bar icons to open Alerts.
+
+### Flight selection flow
 
 ```mermaid
 sequenceDiagram
-  autonumber
-  participant M as setup()
-  participant U as Ui
-  participant B as Battery
-  participant N as Net
-  participant D as DataService
-
-  M->>U: begin() — power TFT + I2C, backlight, init ST7789
-  M->>B: begin(Wire), update()
-  M->>N: begin(ssid, pass, 20 s)
-  M->>N: beginTime(TZ) — wait ≤5 s for SNTP
-  M->>D: begin() — allocate radar buffers, create mutex, start worker
-  M->>B: update() — first gauge reading after power-up can be 0 V
-  Note over D: Worker immediately runs every feed once
-```
-
-### Page navigation
-
-```mermaid
-stateDiagram-v2
-  direction LR
-  [*] --> Now
-  Now --> Hourly
-  Hourly --> Daily
-  Daily --> Radar
-  Radar --> Air
-  Air --> Alerts: only if warnings (auto)
-  Air --> Sky: no warnings (auto)
-  Alerts --> Sky
-  Sky --> Flights
-  Flights --> System
-  System --> Now
-```
-
-D0 moves forward and D1 back through all nine pages. Auto-rotation (every 12 s) skips Alerts when there are no warnings.
-
----
-
-## 5. Data model
-
-```mermaid
-classDiagram
-  class WeatherData {
-    CurrentWeather current
-    HourlyPoint hourly[13]
-    DailyPoint daily[5]
-    Nowcast nowcast
-    char sunrise[6], sunset[6]
-    float daylightSec, sunshineSec
-  }
-  class Nowcast {
-    char firstSlot[6]
-    float mm[8]
-  }
-  class RainSoon {
-    State state
-    int minutes
-  }
-  class AirQualityData {
-    int eaqi
-    float pm25, pm10, no2, o3, uv
-    float grass, birch, alder
-  }
-  class WarningList {
-    WeatherWarning items[4]
-    uint8 count, total
-  }
-  class RadarImage {
-    W = 160, H = 110
-    time_t frameTime
-    uint16* pixels (PSRAM)
-  }
-  class FlightList {
-    Aircraft items[24]
-    uint8 count
-    uint16 total
-    int8 nearest
-    FlightRoute route
-  }
-  class Aircraft {
-    char callsign[9], reg[9], type[5]
-    int32 altFt
-    uint16 speedKt
-    int16 track
-    float distNm, bearing
-  }
-  class UiModel {
-    const& weather, air, warnings
-    const& radar, flights, battery
-  }
-  WeatherData *-- Nowcast
-  WeatherData ..> RainSoon : rainSoon()
-  FlightList *-- Aircraft
-  UiModel o-- WeatherData
-  UiModel o-- AirQualityData
-  UiModel o-- WarningList
-  UiModel o-- RadarImage
-  UiModel o-- FlightList
+  participant U as User
+  participant P as Flights page
+  participant F as Flights cache
+  participant W as Worker
+  U->>P: tap near aircraft
+  P->>P: hit-test last drawn positions (30 px)
+  P->>F: findRoute(callsign)
+  alt not cached
+    P->>F: requestRoute(callsign)
+    W->>F: resolvePending() within 0.5 s -> adsbdb
+  end
+  P->>U: details card shows route, cities, airline
 ```
 
 ---
 
-## 6. Features in detail
+## 7. History log (shared)
 
-### 6.1 Rain radar
+- Fixed-size records in a LittleFS ring file (`/history.bin`), one per quarter hour, 768 slots (8 days). Layout **v2** adds Tempest fields; a version mismatch starts a fresh log.
+- Each record holds:
+  - Open-Meteo: temperature, feels-like, humidity, pressure, 15-min rain, wind, gust, direction, weather code
+  - Air quality: EAQI, PM2.5
+  - Aurora: activity, level
+  - Tempest: temperature, humidity, sea-level pressure, average wind, **highest gust and rain total in the interval**, UV, solar, strikes, sensor battery
+  - Device: battery (Feather), Wi-Fi RSSI, aircraft count
+- The web CSV (`/history.csv?days=N`) has 30 columns. Dashboard charts prefer Tempest series and hide any series with no data.
 
-The radar map is a 160 × 110 px window centred on home at slippy-map **zoom 7** (≈0.72 km per pixel at this latitude), so it covers about **115 × 80 km**.
+## 8. Web dashboard (shared)
 
-1. **Geometry:** `Geo::worldPixel()` converts home to global Web-Mercator pixels. The window's top-left corner is that point minus half the window size. It overlaps at most 2 × 2 tiles of 256 px.
-2. **Base map:** CARTO `dark_all` tiles are downloaded once, decoded into a cached PSRAM buffer, and reused for every frame.
-3. **Radar frame:** `weather-maps.json` gives the newest frame's path. Each overlapping RainViewer tile (`/256/7/x/y/2/1_1.png`, RGBA) is decoded line by line, and only pixels with alpha ≥ 96 are copied over the base map (PNGdec `getAlphaMask`).
-4. **Display:** the composed frame is blitted straight into the canvas, with a crosshair at home, the frame time, and the required attribution: *© OSM CARTO RainViewer*.
-
-Memory: base map + 2 frame buffers = 3 × 35 KB, a 96 KB download buffer and the ~50 KB PNG decoder, all in **PSRAM**. That keeps internal RAM free for TLS (about 140 KB stays free).
-
-> RainViewer's free tiles go up to zoom 7. Higher zooms return an empty placeholder.
-
-### 6.2 Rain coming soon (nowcast)
-
-Open-Meteo `minutely_15=precipitation&forecast_minutely_15=8` returns 2 hours in 15-minute slots. `Weather::rainSoon()` turns this into a status:
-
-```mermaid
-flowchart TD
-  A[Find the slot containing 'now'] --> B{"slot ≥ 0.1 mm?"}
-  B -- yes --> C[Raining]
-  C --> D{"a later dry slot?"}
-  D -- yes --> E["'stops ~X min'"]
-  D -- no --> F["'for 2h+'"]
-  B -- no --> G{"a later wet slot?"}
-  G -- yes --> H["Starting: 'in X min'"]
-  G -- no --> I[Dry]
-```
-
-Minutes are measured from the actual clock to the slot start and rounded to 5. The Now page shows "Rain 25m" or "Raining" in place of the daily chance whenever rain is imminent. The Radar page shows the headline, a detail line and an 8-bar chart; bar height scales with √mm so drizzle is still visible, and heavy slots are yellow.
-
-### 6.3 Sun & moon
-
-- **Sun:** sunrise, sunset, daylight length and sunshine hours come from Open-Meteo's daily fields. A dotted arc shows the sun's position between sunrise and sunset.
-- **Moon:** calculated on the board in `Astro::moon()` from a mean synodic month (29.530588853 days) and a reference new moon (2000-01-06 18:14 UTC). It gives phase (0–1), age, lit fraction `(1 − cos 2πp)/2`, the phase name (8 sectors), and the next full and new moon. Accuracy is within about ±0.5 day, which is fine for showing a date.
-- **Moon drawing:** `Icons::moon()` fills each row of the disc. While waxing, the lit part runs from `x = w·cos(2πp)` to the right edge; while waning, it runs from the left edge to `x = −w·cos(2πp)`. This gives a correct crescent, quarter or gibbous shape for the northern hemisphere.
-
-### 6.4 Flight tracking
-
-- **Positions:** `GET https://api.adsb.lol/v2/point/{lat}/{lon}/25`. The JSON is parsed with an ArduinoJson **filter** that keeps only callsign, registration, type, altitude, ground speed, track, position, distance and direction. The nearest 24 aircraft are kept, sorted by distance.
-- **Routes:** the nearest airborne aircraft's callsign is looked up on adsbdb (`/v0/callsign/{cs}`) to get the airline and origin/destination codes. Results, including "unknown", are cached for 12 callsigns, so each flight costs at most one lookup.
-- **HTTP/1.1:** adsb.lol rejects HTTP/1.0 (status 426). These two calls use `Https::get(..., http10 = false)` and parse `getString()`, which decodes chunked responses. The large String goes to PSRAM.
-- **Scope:** north-up, centred on home. The outer ring is 25 nm and the inner ring 12.5 nm. Each aircraft is an arrow rotated to its track, and the nearest is a larger yellow silhouette.
-
----
-
-## 7. Screen design (240 × 135)
-
-All pages share an 18 px status bar and nine page dots at the bottom.
-
-```
-┌────────────────────────────────────────────────┐
-│14:32  Sat 07 Nov          ⚠  ▂▄▆█  87% [███▯] │ status bar (⚠ only with warnings)
-├────────────────────────────────────────────────┤
-│  ☁☀    9 °C                       H 11         │ NOW
-│  Overcast                         L  6         │
-│  Feels 8  Hum 87%                              │
-│  3mph SW                       Rain 25m        │ ← nowcast beats daily %
-│               ● ○ ○ ○ ○ ○ ○ ○ ○                │
-└────────────────────────────────────────────────┘
-
- RADAR                                SKY
- ┌──────────────────────┬─────────┐   ┌──────────────┬──────────────┐
- │17:20                 │Rain 2h  │   │   . ☀ .      │    (moon)    │
- │    map + radar  ⊕    │in 25m   │   │ .       .    │Waxing gibbous│
- │                      │rain com.│   │ ───────────  │   78% lit    │
- │                      │ ▁▂▅█▅▂  │   │ ↑07:21 ↓16:24│Full Sat 14Nov│
- │(c)OSM CARTO RainView.│now  +2h │   │ Day 9h03m    │New  Sun 29Nov│
- └──────────────────────┴─────────┘   └──────────────┴──────────────┘
-
- FLIGHTS                              AIR / ALERTS / SYSTEM
- ┌──────────────┬───────────────┐     as before: AQI + scale, PM, NO2, O3,
- │   N  ✈       │EZY98CD        │     UV, pollen / warning cards or ✓ /
- │  ( · ✈ )     │EDI>CDG        │     Wi-Fi, IP, battery, uptime, RAM, PSRAM
- │     ✈        │easyJet        │
- │25nm          │A20N G-UZHA    │
- │              │37,000ft 437kt │
- │              │5.8nm SE  5 ac │
- └──────────────┴───────────────┘
-```
-
-### Icons (`icons.cpp`, all vector, no bitmaps)
-
-| Icon | Drawn as |
+| Path | Content |
 |---|---|
-| Weather (10 kinds) | Sun/moon, clouds, rain, drizzle, snow, sleet, fog, lightning on a 48-unit grid, scaled per use |
-| Sunrise / sunset | Half sun on a horizon with rays and an up/down arrow |
-| Moon phase | Row-filled disc, lit/earthshine shading by phase |
-| Aircraft | Nose, fuselage, wings and tail triangles rotated to track (arrowhead below 12 px) |
-| Warning | Triangle with "!" in yellow/amber/red |
-| Wi-Fi / battery | 4 bars / outline with fill and charge bolt |
+| `/` | Live mirrors of every page (click to enlarge with fast refresh), 24 h / 3 d / 7 d charts, CSV link |
+| `/screen.bmp?p=N` | 24-bit BMP of page N: 240×135 (Feather), 400×240 (CrowPanel) |
+| `/api/now.json` | Current values, source, page list; CrowPanel adds render timings and last tap |
+| `/history.csv?days=N` | History log |
 
----
+Hostnames: `weather.local` (Feather), `weather7.local` (CrowPanel). Each board plugs into the shared server through `WebUi::Board`: its size, pages, a snapshot hook and extra JSON.
 
-## 8. Memory and flash
+## 9. Memory (CrowPanel)
 
-| Resource | Use |
+| Item | Size |
 |---|---|
-| Flash | ≈1.45 MB of the 1.9 MB app slot (`min_spiffs.csv`, which keeps two OTA slots) |
-| Internal RAM | ≈84 KB static, ≈140 KB free at runtime (TLS needs ~45 KB per connection) |
-| PSRAM | Radar buffers, PNG decoder, tile download buffer, large JSON/Strings; ≈1.8 MB free |
-| Worker stack | 16 KB |
+| Panel frame buffer (PSRAM) | 768 KB |
+| UI sprite (PSRAM) | 768 KB |
+| Radar: 9 frames + spare + base map, 520×380×2 each | ~4.3 MB |
+| Tile download buffer + PNG decoder | ~150 KB |
+| Free PSRAM at runtime | ~2 MB |
+| Free internal RAM at runtime | ~200 KB |
+| Flash | ~1.8 MB of the 3 MB app partition |
 
-The partition table was changed from Adafruit's TinyUF2 layout (1.4 MB app) to `min_spiffs.csv`. UF2 drag-and-drop flashing is therefore not available; flashing is over USB with esptool as normal.
+## 10. Design decisions
 
----
-
-## 9. Design decisions
-
-| Decision | Rationale |
+| Decision | Why |
 |---|---|
-| **Worker task + mutex** | Keeps the UI responsive while radar and flight downloads run; the lock is held only for memory copies. |
-| **Stage, then publish** | Every fetcher fills a private object; failures never blank the screen. |
-| **Double-buffered radar** | Swapping pointers avoids copying 35 KB under the lock. |
-| **PNGdec, line by line** | A full RGBA 256² tile would be 256 KB; line decoding needs about 1 KB of line buffers. |
-| **Base map cached once** | Static imagery; saves 4 downloads per radar refresh and respects CARTO's usage limits. |
-| **ArduinoJson filters** | adsb.lol responses include ~40 fields per aircraft; filtering keeps memory proportional to what's used. |
-| **adsb.lol, not OpenSky/airplanes.live** | No account, no tight daily credit limit; airplanes.live now requires approval (403). |
-| **Moon phase computed locally** | No API needed; mean-month accuracy is enough for a phase picture and dates. |
-| **`setInsecure()` TLS** | All data is public; avoids bundling and rotating CA certificates. Use `setCACert()` if required. |
-| **Pre-build script for PNGdec** | Its ESP32-S3 SIMD `.S` file is dead code on this board and needs esp-dsp headers the assembler can't find. |
-| **Config in headers** | Location, regions, radius and timings are compile-time constants. |
+| Shared core, per-board UI folders | Data, history and web are identical; only drawing and input differ |
+| Header-only templated icons | Same artwork on Adafruit_GFX and LovyanGFX with no virtual-call layer |
+| Tempest via UDP, not the cloud API | Local, instant, no token; the hub broadcasts anyway |
+| Radar ring + spare | Needed memory is (frames + 2) × frame size, not twice the loop |
+| On-demand route lookups through the worker | The UI never blocks on HTTPS; results are cached for every later tap |
+| Render at 1 fps except radar | A full frame costs ~200 ms; constant redraws starved web snapshots |
+| OSM tiles restyled dark | CARTO now needs an API key; OSM tiles are free with attribution and fetched once |
+| PCA9557 detection | One binary works on V2.x and V3.0 CrowPanels |
+| `png_simd_fallback.c` | PNGdec calls an S3 SIMD routine on generic S3 boards; its assembly needs esp-dsp headers, so a C version replaces it |
 
-## 10. Build, flash, monitor
+## 11. Build and flash
 
 ```bash
-pio run                      # build
-pio run -t upload            # flash (auto-detects the port)
-pio device monitor           # 115200 baud serial log
+pio run -e crowpanel_7 -t upload              # CrowPanel (CH340, auto-reset)
+pio run -e feather_s3_reverse_tft -t upload   # Feather (see scripts/flash.ps1 on Windows)
+pio device monitor -b 115200
 ```
 
-If upload says *"A device which does not exist was specified"*, the board has re-enumerated into its ROM bootloader on a new COM port (USB ID 303A:1001). Upload again to that port: `pio run -t upload --upload-port COM8`.
-
-To force the bootloader manually: hold **D0**, tap **Reset**, release **D0**.
-
-Test Met Office parsing against the UK-wide feed (PowerShell):
-
-```powershell
-$env:PLATFORMIO_BUILD_FLAGS = '-DWARNING_REGION=\"UK\" -DWARNING_AREA_FILTER=\"\"'
-pio run -t upload
-Remove-Item Env:PLATFORMIO_BUILD_FLAGS
-```
-
-## 11. Possible extensions
-
-- Radar animation: loop the last 6–12 RainViewer frames (≈35 KB each in PSRAM).
-- Deep sleep between refreshes for long battery life (screen off, wake on D0).
-- Wi-Fi setup from a phone via a temporary hotspot instead of compile-time credentials.
-- OTA firmware updates (the partition table already has two app slots).
-- Indoor sensor on the STEMMA QT port (BME280 / SHT40 / SCD-40 CO₂).
-- Flight alerts: flash the NeoPixel for low or interesting aircraft (military, helicopters, specific types).
+Touch orientation can be adjusted in `src/crowpanel/board_config.h` (`CP_TOUCH_FLIP`, `CP_TOUCH_ROTATION`), as can the pixel clock and backlight levels.

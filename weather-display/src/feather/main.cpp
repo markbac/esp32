@@ -9,6 +9,7 @@
  *            quality, warnings, aurora, flights and radar on their own schedules.
  *          - **Core 1** – this Arduino loop (buttons, page rotation, battery,
  *            alert LED, history logging, screen redraws) and the web server task.
+ *          - Tempest UDP broadcasts are merged in by the AsyncUDP task.
  *            Neither waits on the network.
  *
  *          Buttons: D0 = next page, D1 = previous page, D2 = refresh all data.
@@ -23,12 +24,14 @@
 #include "connectivity.h"
 #include "data_service.h"
 #include "history.h"
+#include "recorder.h"
 #if __has_include("secrets.h")
 #include "secrets.h"  // Your Wi-Fi credentials (git-ignored).
 #else
 #include "secrets.example.h"  // Placeholder so a fresh clone builds; copy to secrets.h.
 #endif
 #include "status_led.h"
+#include "tempest.h"
 #include "ui.h"
 #include "web_ui.h"
 
@@ -40,7 +43,6 @@ uint32_t lastPageChange = 0;    ///< millis() of last page change (auto or butto
 uint32_t lastSerialLog = 0;     ///< millis() of last status line.
 uint32_t lastRender = 0;        ///< millis() of last redraw.
 uint32_t lastLed = 0;           ///< millis() of last LED update.
-uint32_t lastHistorySlot = 0;   ///< Quarter-hour slot (epoch / interval) last logged.
 
 /**
  * @brief  True (and resets @p last) when @p interval ms have passed since @p last.
@@ -131,73 +133,29 @@ void updateLed() {
   StatusLed::update(w, a);
 }
 
-/** @brief Clamp and convert to an integer field. */
-template <typename T>
-T scaled(float v, float scale, float lo, float hi) {
-  return static_cast<T>(lroundf(constrain(v * scale, lo, hi)));
+/** @brief Web server hook: render @p p off-screen into @p out. */
+void webSnapshot(uint8_t p, uint16_t *out) {
+  DataService::Guard g;
+  Ui::snapshot(static_cast<Page>(p), model(), out);
 }
 
-/** @brief Snapshot current data into a history record. */
-HistoryRecord buildRecord(time_t now) {
-  HistoryRecord r{};
-  r.time = static_cast<uint32_t>(now);
-  {
-    DataService::Guard g;
-    const WeatherData &wx = DataService::weather();
-    if (wx.valid) {
-      const CurrentWeather &c = wx.current;
-      r.flags |= HF_WEATHER;
-      r.temp10 = scaled<int16_t>(c.temp, 10, -32000, 32000);
-      r.feels10 = scaled<int16_t>(c.feelsLike, 10, -32000, 32000);
-      r.humidity = static_cast<uint8_t>(constrain(c.humidity, 0, 100));
-      r.pressure10 = scaled<uint16_t>(c.pressure, 10, 0, 65535);
-      r.rain100 = scaled<uint16_t>(c.precip, 100, 0, 65535);
-      r.wind10 = scaled<uint16_t>(c.wind, 10, 0, 65535);
-      r.gust10 = scaled<uint16_t>(c.gust, 10, 0, 65535);
-      r.windDir = static_cast<uint16_t>(c.windDir);
-      r.code = static_cast<uint8_t>(c.code);
-    }
-    const AirQualityData &aq = DataService::air();
-    if (aq.valid) {
-      r.flags |= HF_AIR;
-      r.eaqi = static_cast<uint8_t>(constrain(aq.eaqi, 0, 255));
-      r.pm25x10 = scaled<uint16_t>(aq.pm25, 10, 0, 65535);
-    }
-    const AuroraData &au = DataService::aurora();
-    if (au.valid) {
-      r.flags |= HF_AURORA;
-      r.aurora10 = scaled<uint16_t>(Aurora::latestActivity(au), 10, 0, 65535);
-      r.auroraLevel = static_cast<uint8_t>(au.level);
-    }
-    r.aircraft = static_cast<uint8_t>(min<uint16_t>(DataService::flights().total, 255));
-  }
+/** @brief Web server hook: page names. */
+const char *webPageName(uint8_t p) { return Ui::pageName(static_cast<Page>(p)); }
+
+/** @brief Web server hook: add the LiPo reading to /api/now.json. */
+void webExtraJson(JsonDocument &doc) {
   const BatteryStatus &b = Battery::status();
-  if (b.present) {
-    r.flags |= HF_BATTERY;
-    r.battPct = static_cast<uint8_t>(lroundf(b.percent));
-    r.battMv = scaled<uint16_t>(b.voltage, 1000, 0, 65535);
-  } else {
-    r.battPct = 255;
-  }
-  r.rssi = static_cast<int8_t>(Net::rssi());
-  return r;
+  if (b.present) doc["battery"] = static_cast<int>(lroundf(b.percent));
 }
 
-/** @brief Append one record per quarter hour (aligned to :00, :15, :30, :45). */
+/** @brief Log a history record when a new quarter hour starts. */
 void logHistory() {
-  if (!Net::timeValid()) return;
-  const time_t now = time(nullptr);
-  const uint32_t slot = now / HISTORY_INTERVAL_S;
-  if (slot == lastHistorySlot) return;
-  {
-    DataService::Guard g;
-    if (!DataService::weather().valid) return;  // Wait for the first forecast after boot.
-  }
-  lastHistorySlot = slot;
-  const HistoryRecord r = buildRecord(now);
-  const bool ok = History::append(r);
-  Serial.printf("[history] %s record %u (%.1fC, AQI %u, %u aircraft)\n", ok ? "logged" : "FAILED to log",
-                History::count(), r.temp10 / 10.0f, r.eaqi, r.aircraft);
+  const BatteryStatus &b = Battery::status();
+  Recorder::DeviceBattery batt;
+  batt.present = b.present;
+  batt.percent = b.percent;
+  batt.voltage = b.voltage;
+  Recorder::poll(batt);
 }
 
 /** @brief One-line health summary for the serial monitor. */
@@ -237,11 +195,11 @@ void setup() {
   // Give SNTP a moment so hourly data can be aligned to the current hour.
   for (int i = 0; i < 20 && !Net::timeValid(); ++i) delay(250);
 
-  // Don't double-log a quarter hour that was recorded just before a reboot.
-  lastHistorySlot = History::lastTime() / HISTORY_INTERVAL_S;
-
   DataService::begin();
-  WebUi::begin();
+  Recorder::begin();
+  Tempest::begin();
+  WebUi::begin(WebUi::Board{"Feather ESP32-S3 Reverse TFT", Ui::WIDTH, Ui::HEIGHT,
+                            static_cast<uint8_t>(Page::Count), webPageName, webSnapshot, webExtraJson});
   Battery::update();  // The gauge's first reading after power-up can be 0 V.
   lastPageChange = millis();
 }
