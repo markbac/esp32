@@ -212,6 +212,7 @@ void snapshot(Page page, const UiModel &m, uint16_t *out) {
 
 const char *pageName(Page p) {
   static const char *const names[] = {"Now", "Hourly", "5-Day", "Radar", "Air", "Alerts", "Sky", "Flights", "System"};
+  static_assert(sizeof(names) / sizeof(names[0]) == static_cast<size_t>(Page::Count), "one name per page");
   const uint8_t i = static_cast<uint8_t>(p);
   return i < static_cast<uint8_t>(Page::Count) ? names[i] : "?";
 }

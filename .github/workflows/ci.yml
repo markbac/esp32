@@ -1,0 +1,93 @@
+# Continuous integration for the weather-display firmware.
+#   build    - compiles both boards and enforces the flash-size budget
+#   analyse  - cppcheck static analysis of our sources (pio check)
+#   secrets  - gitleaks over the full history, plus a guard on include/secrets.h
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: weather-display
+
+jobs:
+  build:
+    name: Build ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [crowpanel_7, feather_s3_reverse_tft]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('weather-display/platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+      # include/secrets.h is git-ignored; secrets_include.h falls back to secrets.example.h.
+      - name: Build
+        run: pio run -e ${{ matrix.env }}
+      - name: Flash size budget
+        run: python scripts/check_size.py .pio/build/${{ matrix.env }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.env }}
+          path: weather-display/.pio/build/${{ matrix.env }}/firmware.bin
+          retention-days: 14
+
+  analyse:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-check-${{ runner.os }}-${{ hashFiles('weather-display/platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+      - name: cppcheck
+        run: pio check -e crowpanel_7 -e feather_s3_reverse_tft --severity=medium --fail-on-defect=medium
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: secrets.h must never be tracked
+        working-directory: .
+        run: |
+          if git ls-files --error-unmatch weather-display/include/secrets.h 2>/dev/null; then
+            echo "::error file=weather-display/include/secrets.h::secrets.h is committed - remove it and rotate the credentials"
+            exit 1
+          fi
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
