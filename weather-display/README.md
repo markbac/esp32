@@ -19,7 +19,7 @@ Home weather station firmware for two displays that share one core:
 - **Home lab**: NAS health (Glances), internet speed (Speedtest Tracker), services (Uptime Kuma), Sonos now playing.
 - System status.
 
-**Also:** quarter-hourly history saved to flash (**90 days** on the CrowPanel, 8 on the Feather) with records, summaries and charts, and a local web dashboard that mirrors every screen and charts the last 7 days (CSV download included). The dashboard is at `http://weather7.local` for the CrowPanel and `http://weather.local` for the Feather.
+**Also:** quarter-hourly history saved to flash (**90 days** on the CrowPanel, 8 on the Feather) with records, summaries and charts, and a local **web dashboard** with its own pages for every feature: interactive radar and flight maps, charts, aircraft photos, history up to 90 days (CSV download), plus a Mirror tab showing the device screens. The dashboard is at `http://weather7.local` for the CrowPanel and `http://weather.local` for the Feather.
 
 All data sources are free and need no API keys: Tempest (local), Open-Meteo, Met Office, AuroraWatch UK, RainViewer, OpenStreetMap, adsb.lol, adsbdb, planespotters.net, carbonintensity.org.uk. Aircraft photos are decoded with [stb_image](https://github.com/nothings/stb) (public domain).
 

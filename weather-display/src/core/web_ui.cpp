@@ -14,6 +14,7 @@
 #include "history.h"
 #include "web_page.h"
 #include "web_settings.h"
+#include "web_api.h"
 
 namespace {
 
@@ -246,6 +247,7 @@ void begin(const Board &b) {
   server.on("/api/now.json", HTTP_GET, handleNow);
   server.on("/history.csv", HTTP_GET, handleHistory);
   WebSettings::registerRoutes(server);
+  WebApi::registerRoutes(server, board.name);
   server.onNotFound([] { server.send(404, "text/plain", "Not found"); });
   server.begin();
 

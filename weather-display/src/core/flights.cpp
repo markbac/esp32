@@ -249,6 +249,8 @@ bool fetch(FlightList &out) {
     p.track = static_cast<int16_t>(a["track"] | 0.0f);
     if (!a["lat"].is<double>()) continue;  // Position unknown: can't plot.
     const double lat = a["lat"], lon = a["lon"];
+    p.lat = static_cast<float>(lat);
+    p.lon = static_cast<float>(lon);
     p.distNm = a["dst"].is<float>() ? a["dst"].as<float>() : Geo::distanceNm(homeLat, homeLon, lat, lon);
     p.bearing = a["dir"].is<float>() ? a["dir"].as<float>() : Geo::bearingDeg(homeLat, homeLon, lat, lon);
 

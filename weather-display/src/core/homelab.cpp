@@ -108,6 +108,7 @@ void fetchSpeed(SpeedStatus &s, const SettingsData &cfg) {
   }
   JsonObject d = doc["data"];
   if (d.isNull()) return;
+  s.failed = d["failed"] | false;
   s.down = d["download"] | 0.0f;
   s.up = d["upload"] | 0.0f;
   s.ping = d["ping"] | 0.0f;

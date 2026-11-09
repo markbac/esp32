@@ -61,6 +61,15 @@ void speedCard(const SpeedStatus &s) {
   constexpr int x = 400, y = BODY_Y + M, w = 392, h = 110;
   card(x, y, w, h, "Internet");
   if (!s.ok) return placeholder(x, y, w, h, "Speedtest Tracker not reachable");
+  if (s.failed) {
+    text("Last speed test failed", x + 16, y + 44, F::M, C::ORANGE);
+    if (s.testedAt) {
+      char t[6];
+      hhmm(s.testedAt, t);
+      textf(x + 16, y + 78, F::XS, C::MUTED, td::top_left, "Speedtest Tracker run at %s", t);
+    }
+    return;
+  }
   const int cw = (w - 32) / 3;
   auto fig = [&](int i, float v, const char *unit, const char *label, uint16_t col) {
     const int fx = x + 16 + i * cw;

@@ -29,6 +29,7 @@ struct NasStatus {
 /** @brief Last internet speed test. */
 struct SpeedStatus {
   bool ok = false;
+  bool failed = false;              ///< The latest test itself failed (no figures).
   float down = 0, up = 0, ping = 0;  ///< Mbps, Mbps, ms.
   uint32_t testedAt = 0;             ///< UTC epoch.
   char server[32] = "";

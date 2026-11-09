@@ -312,12 +312,27 @@ Instead of `/api/states` (hundreds of KB), the device POSTs one Jinja template t
 
 | Path | Content |
 |---|---|
-| `/` | Live mirrors of every page (click to enlarge with fast refresh), 24 h / 3 d / 7 d charts, CSV link |
+| `/` | **Native dashboard** (tabs: Now, Forecast, Radar, Flights, Air & Grid, Sky & Alerts, Home, Lab, History, Mirror, System) |
+| `/api/state.json` | Everything the device knows in one ~8 KB JSON document (refreshed by the page every 20 s) |
+| `/api/photo?hex=` | Cached aircraft photo (JPEG); 202 while being fetched |
+| `/api/lookup?hex=&cs=` | Queue a route + photo lookup for an aircraft |
 | `/screen.bmp?p=N` | 24-bit BMP of page N: 240×135 (Feather), 400×240 (CrowPanel) |
 | `/api/now.json` | Current values, source, page list; CrowPanel adds render timings and last tap |
 | `/history.csv?days=N` | History log (up to `HISTORY_DAYS`; 32 columns incl. rain rate and carbon) |
 | `/settings` | Settings form (GET) and save (POST) |
 | `/api/settings` | Non-secret settings; secrets only as `"set"` / `"not set"` |
+
+### Native dashboard
+
+The page is rendered in the browser from `/api/state.json`, `/history.csv` and `/api/now.json`; the device only serves JSON (and the page itself from flash).
+
+- **Radar** and **Flights** use Leaflet maps. The browser fetches OpenStreetMap and RainViewer tiles itself, so the maps are zoomable and cost the device nothing. Radar frames animate with a scrubber; the device's own rain-arrival estimate is shown alongside.
+- **Flights** plots aircraft at their reported positions with trails, colour by altitude; clicking a plane (or table row) shows its cached photo (`/api/photo`), route, cities and airline, and links to adsb.lol.
+- Charts (forecast, 3-hour Tempest trends, grid forecast, aurora, history up to 90 days) use Chart.js.
+- **Mirror** keeps the original live screenshots of the device display.
+- Chart.js and Leaflet load from cdn.jsdelivr.net / cdnjs.cloudflare.com, so the browser (not the device) needs internet access.
+
+Implementation notes: the JSON is serialised while holding the data lock because ArduinoJson 7 stores `const char[N]` strings by pointer; strings from local variables are copied explicitly; any control byte from external text is replaced with a space so the JSON stays valid.
 
 ### Settings page (write-only secrets)
 

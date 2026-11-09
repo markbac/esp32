@@ -41,6 +41,7 @@ struct Aircraft {
   int16_t track = 0;      ///< Track over ground, degrees true.
   float distNm = 0;       ///< Distance from home, nautical miles.
   float bearing = 0;      ///< Bearing from home, degrees true.
+  float lat = 0, lon = 0;  ///< Position, degrees.
   uint8_t trailCount = 0;                 ///< Valid trail points (oldest first).
   float trailDist[TRAIL_POINTS] = {};     ///< Earlier distances, nm.
   float trailBearing[TRAIL_POINTS] = {};  ///< Earlier bearings, degrees.
