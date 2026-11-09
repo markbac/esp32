@@ -13,6 +13,8 @@
 #include "data_service.h"
 #include "history.h"
 #include "web_page.h"
+#include "web_settings.h"
+#include "web_api.h"
 
 namespace {
 
@@ -105,6 +107,12 @@ void handleNow() {
       doc["sunrise"] = wx.sunrise;
       doc["sunset"] = wx.sunset;
     }
+    const CarbonData &ci = DataService::carbon();
+    if (ci.valid) {
+      doc["carbon"] = ci.nowGPerKwh;
+      doc["carbonIndex"] = Carbon::indexName(ci.nowIndex);
+    }
+    if (t.fresh()) doc["rainRate"] = t.rainRateMmH;
     if (aq.valid) {
       doc["aqi"] = aq.eaqi;
       doc["aqiBand"] = AirQuality::band(aq.eaqi);
@@ -142,7 +150,7 @@ void field(char *buf, size_t n, bool have, float v, int prec) {
 
 /** @brief GET /history.csv?days=N — stream the log as CSV (chunked). */
 void handleHistory() {
-  const int days = constrain(server.hasArg("days") ? server.arg("days").toInt() : HISTORY_DEFAULT_DAYS, 1, 31);
+  const int days = constrain(server.hasArg("days") ? server.arg("days").toInt() : HISTORY_DEFAULT_DAYS, 1, HISTORY_DAYS);
   const time_t now = time(nullptr);
   const uint32_t since = now > days * 86400L ? now - days * 86400L : 0;
 
@@ -156,7 +164,7 @@ void handleHistory() {
               "epoch,local_time,temp_c,feels_c,humidity_pct,pressure_hpa,rain_mm,wind_mph,gust_mph,wind_dir,"
               "weather_code,eaqi,pm25,battery_pct,battery_v,rssi_dbm,aircraft,aurora_nt,aurora_level,"
               "t_temp_c,t_humidity_pct,t_pressure_hpa,t_wind_mph,t_gust_mph,t_wind_dir,t_rain_mm,t_uv,t_solar_wm2,"
-              "t_strikes,t_battery_v\n");
+              "t_strikes,t_battery_v,t_rain_rate_mmh,carbon_g\n");
 
   String chunk;
   chunk.reserve(4096);
@@ -184,7 +192,7 @@ void handleHistory() {
     field(f[12], 12, b, r.battMv / 1000.0f, 3);
     field(f[13], 12, au, r.aurora10 / 10.0f, 1);
     field(f[14], 12, au, r.auroraLevel, 0);
-    char tf[11][12];
+    char tf[13][12];
     field(tf[0], 12, te, r.tTemp10 / 10.0f, 1);
     field(tf[1], 12, te, r.tHumidity, 0);
     field(tf[2], 12, te, r.tPressure10 / 10.0f, 1);
@@ -196,10 +204,12 @@ void handleHistory() {
     field(tf[8], 12, te, r.tSolar, 0);
     field(tf[9], 12, te, r.tStrikes, 0);
     field(tf[10], 12, te, r.tBattMv / 1000.0f, 3);
-    snprintf(line, sizeof(line), "%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%u,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+    field(tf[11], 12, te, r.tRate10 / 10.0f, 1);
+    field(tf[12], 12, r.flags & HF_CARBON, r.carbon, 0);
+    snprintf(line, sizeof(line), "%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%u,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
              static_cast<unsigned long>(r.time), when, f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9], f[10],
              f[11], f[12], r.rssi, r.aircraft, f[13], f[14], tf[0], tf[1], tf[2], tf[3], tf[4], tf[5], tf[6], tf[7], tf[8],
-             tf[9], tf[10]);
+             tf[9], tf[10], tf[11], tf[12]);
     chunk += line;
     if (chunk.length() > 3500) {
       server.sendContent(chunk);
@@ -236,6 +246,8 @@ void begin(const Board &b) {
   server.on("/screen.bmp", HTTP_GET, handleScreen);
   server.on("/api/now.json", HTTP_GET, handleNow);
   server.on("/history.csv", HTTP_GET, handleHistory);
+  WebSettings::registerRoutes(server);
+  WebApi::registerRoutes(server, board.name);
   server.onNotFound([] { server.send(404, "text/plain", "Not found"); });
   server.begin();
 

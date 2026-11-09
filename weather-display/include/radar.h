@@ -26,6 +26,28 @@ struct RadarFrame {
   uint16_t *pixels = nullptr;  ///< W*H RGB565 pixels (little-endian) in PSRAM.
 };
 
+/**
+ * @brief Rain arrival estimate derived from the radar loop itself.
+ *
+ * @details Rain cells are found by comparing each frame with the cached base
+ *          map (pixels that differ = rain), on a coarse grid. The motion
+ *          vector between consecutive frames is found by trying every shift
+ *          within +/-RADAR_ETA_SEARCH cells and keeping the best overlap. From
+ *          home, the estimate then walks *upwind* (against the motion) through
+ *          the newest frame to the first rain within a narrow corridor;
+ *          distance / speed gives the arrival time.
+ */
+struct RadarEta {
+  bool valid = false;        ///< Motion could be measured.
+  bool rainingHere = false;  ///< Radar shows rain over home now.
+  bool approaching = false;  ///< Rain found upwind, heading this way.
+  int minutes = -1;          ///< Estimated minutes until it arrives.
+  float distanceKm = 0;      ///< Distance to that rain.
+  float speedKmh = 0;        ///< Speed of the rain field.
+  int fromDeg = 0;           ///< Direction the rain is moving FROM (compass degrees).
+  float coverage = 0;        ///< Fraction of the map with rain, 0-1.
+};
+
 /** @brief The animation: frames oldest first. */
 struct RadarLoop {
   static constexpr int W = RADAR_VIEW_W;  ///< Viewport width, pixels.
@@ -35,6 +57,7 @@ struct RadarLoop {
   uint32_t fetchedAtMs = 0;         ///< millis() of the last successful refresh.
   uint8_t count = 0;                ///< Valid frames.
   RadarFrame frames[RADAR_FRAMES];  ///< Oldest first; frames[count-1] is newest.
+  RadarEta eta;                     ///< Rain arrival estimate from these frames.
 };
 
 /** @brief A frame listed in RainViewer's index. */
@@ -63,5 +86,12 @@ bool listFrames(RadarFrameRef (&refs)[RADAR_FRAMES], uint8_t &n);
  * @return true on success.
  */
 bool compose(const RadarFrameRef &ref, uint16_t *dst);
+
+/**
+ * @brief  Estimate rain motion and arrival time from the loop's newest frames.
+ * @param  loop  Composed frames (only read).
+ * @return The estimate (valid = false if there is too little rain to track).
+ */
+RadarEta estimate(const RadarLoop &loop);
 
 }  // namespace Radar

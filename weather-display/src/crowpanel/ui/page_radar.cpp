@@ -102,7 +102,7 @@ void nowcast(const WeatherData &wx) {
   text(detail, PX + 16, y + 92, F::S, C::MUTED);
 
   // Bar chart: sqrt scale so drizzle shows; 2 mm per 15 min fills.
-  const int cx0 = PX + 16, cw = PW - 32, cTop = y + 130, cBot = y + 240;
+  const int cx0 = PX + 16, cw = PW - 32, cTop = y + 124, cBot = y + 206;
   const int bw = cw / NOWCAST_SLOTS;
   float total = 0;
   for (int i = 0; i < wx.nowcast.count; ++i) {
@@ -116,7 +116,33 @@ void nowcast(const WeatherData &wx) {
   text("now", cx0, cBot + 6, F::XS, C::MUTED);
   text("+1 h", cx0 + cw / 2, cBot + 6, F::XS, C::MUTED, td::top_center);
   text("+2 h", cx0 + cw, cBot + 6, F::XS, C::MUTED, td::top_right);
-  textf(PX + 16, cBot + 26, F::XS, C::MUTED, td::top_left, "Total %.1f mm forecast", total);
+  textf(PX + 16, cBot + 24, F::XS, C::MUTED, td::top_left, "Total %.1f mm forecast", total);
+
+  // Radar tracking (motion of the rain field across the loop).
+  const RadarEta &eta = DataService::radar().eta;
+  text("Radar tracking", PX + 16, cBot + 50, F::XS, C::MUTED);
+  char line[48];
+  uint16_t lc = C::TEXT;
+  if (!eta.valid) {
+    snprintf(line, sizeof(line), eta.coverage < 0.01f ? "No rain on the map" : "Too little rain to track");
+    lc = C::DIM;
+  } else if (eta.rainingHere) {
+    snprintf(line, sizeof(line), "Rain overhead now");
+    lc = C::BLUE;
+  } else if (eta.approaching) {
+    snprintf(line, sizeof(line), "Rain in ~%d min (%.0f km)", eta.minutes, eta.distanceKm);
+    lc = C::BLUE;
+  } else {
+    snprintf(line, sizeof(line), "None heading here");
+    lc = C::GREEN;
+  }
+  text(line, PX + 16, cBot + 66, F::S, lc);
+  if (eta.valid && eta.speedKmh >= 3) {
+    textf(PX + 16, cBot + 92, F::XS, C::MUTED, td::top_left, "showers moving from %s, %.0f km/h", Weather::compass(eta.fromDeg),
+          eta.speedKmh);
+  } else if (eta.valid) {
+    text("showers almost stationary", PX + 16, cBot + 92, F::XS, C::MUTED);
+  }
 
   // Intensity key.
   int kx = PX + 16;
@@ -126,7 +152,6 @@ void nowcast(const WeatherData &wx) {
     canvas.fillRect(kx, ky + 4, 12, 12, k.first);
     kx += 16 + text(k.second, kx + 16, ky + 2, F::XS, C::MUTED) + 12;
   }
-  text("Tap map: pause / step", PX + 16, y + h - 60, F::XS, C::DIM);
 }
 
 }  // namespace

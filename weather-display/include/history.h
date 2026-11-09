@@ -2,13 +2,20 @@
  * @file    history.h
  * @brief   Persistent quarter-hourly log of weather, air, device and sky data.
  *
- * @details Records are fixed-size and stored in a ring file on LittleFS (the
- *          128 KB "spiffs" partition), so the log survives reboots and power
- *          loss and never grows: when full, the oldest record is overwritten.
- *          Default capacity is 8 days of 15-minute records (~26 KB).
+ * @details Records are fixed-size and stored on LittleFS (the "spiffs"
+ *          partition) in **append-only weekly files**: `/hist/w<week>.bin`,
+ *          where week = UTC days since 1970 / 7. Each record is appended to the
+ *          current week's file; when files cover more than HISTORY_DAYS the
+ *          oldest is deleted. Retention: 8 days on the Feather (128 KB
+ *          partition), 90 days on the CrowPanel (~520 KB of ~900 KB).
  *
- *          File layout: a 16-byte @ref HistoryHeader followed by
- *          HISTORY_CAPACITY slots of @ref HistoryRecord.
+ *          Why not one ring file: LittleFS stores a file as a chain of blocks,
+ *          so rewriting bytes near the start of a large file (a ring header or
+ *          slot) rewrites everything after it, needing free space the size of
+ *          the file and wearing the flash. Appends only touch the last block.
+ *
+ *          `/hist/meta.bin` records the layout version and record size; a
+ *          mismatch clears the log.
  *
  *          Thread-safe: append() runs on the UI loop, read() on the web task.
  */
@@ -18,7 +25,7 @@
 
 #include <vector>
 
-/** @brief One logged sample (packed, scaled integers; layout version 2). */
+/** @brief One logged sample (packed, scaled integers; layout version 3). */
 struct __attribute__((packed)) HistoryRecord {
   uint32_t time;        ///< UTC epoch seconds.
   int16_t temp10;       ///< Air temperature, 0.1 deg C.
@@ -51,6 +58,8 @@ struct __attribute__((packed)) HistoryRecord {
   uint16_t tSolar;      ///< Solar radiation, W/m2.
   uint8_t tStrikes;     ///< Lightning strikes in the interval.
   uint16_t tBattMv;     ///< Sensor battery, mV.
+  uint16_t tRate10;     ///< Highest rain rate in the interval, 0.1 mm/h.
+  uint16_t carbon;      ///< Grid carbon intensity, gCO2/kWh (valid when HF_CARBON).
 };
 
 /** @name HistoryRecord::flags bits */
@@ -60,6 +69,7 @@ constexpr uint8_t HF_AIR = 1 << 1;
 constexpr uint8_t HF_BATTERY = 1 << 2;
 constexpr uint8_t HF_AURORA = 1 << 3;
 constexpr uint8_t HF_TEMPEST = 1 << 4;
+constexpr uint8_t HF_CARBON = 1 << 5;
 ///@}
 
 namespace History {

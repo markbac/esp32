@@ -6,7 +6,7 @@
  * @verbatim
  *   y   0..43   status bar   [21:57 Sun 8 Nov]   [Page title]   [T][aurora][!][wifi]
  *   y  44..423  page body (800 x 380); cards inset 8 px
- *   y 424..479  tab bar: Now | Forecast | Radar | Air | Sky | Alerts | Flights | History | System
+ *   y 424..479  tab bar (12): Now | Forecast | Radar | Air | Grid | Sky | Alerts | Flights | History | Home | Lab | System
  * @endverbatim
  */
 #pragma once
@@ -16,6 +16,7 @@
 
 #include "aurora.h"
 #include "data_service.h"
+#include "frost.h"
 #include "theme.h"
 #include "warnings.h"
 
@@ -72,7 +73,7 @@ struct UiState {
   Page page = Page::Now;          ///< Visible page.
   bool radarPaused = false;       ///< Radar animation frozen.
   int radarFrame = -1;            ///< Frame shown while paused.
-  uint8_t historyDays = 1;        ///< History page range: 1, 3 or 7 days.
+  uint8_t historyDays = 0;        ///< History page: 0 = summary, else chart range in days.
   char selectedHex[7] = "";       ///< Aircraft selected on the Flights page.
 };
 extern UiState state;
@@ -113,6 +114,8 @@ void warningTriangle(int x, int y, int size, uint16_t color);
 uint16_t warningColor(WarningLevel l);
 uint16_t auroraColor(AuroraLevel l);
 uint16_t aqiColor(uint8_t bandIdx);
+uint16_t carbonColor(CarbonIndex i);
+uint16_t frostColor(FrostLevel l);
 /** @brief Local "HH:MM" for a UTC epoch (buf >= 6). */
 void hhmm(time_t t, char *buf);
 /** @brief "12 s ago" / "5 min ago" / "3 h ago" for a millis() timestamp (buf >= 16). */
@@ -125,10 +128,13 @@ void pageNow();
 void pageForecast();
 void pageRadar();
 void pageAir();
+void pageGrid();
 void pageSky();
 void pageAlerts();
 void pageFlights();
 void pageHistory();
+void pageHome();
+void pageLab();
 void pageSystem();
 bool tapRadar(int x, int y);
 bool tapFlights(int x, int y);

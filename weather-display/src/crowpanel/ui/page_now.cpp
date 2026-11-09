@@ -30,7 +30,7 @@ struct Outside {
   bool have = false;
   const char *source = "";
   float temp = NAN, feels = NAN, humidity = NAN, dew = NAN, pressure = NAN;
-  float rainToday = NAN, uv = NAN, solar = NAN;
+  float rainToday = NAN, rainRate = NAN, uv = NAN, solar = NAN;
   float windAvg = NAN, windGust = NAN, windLull = NAN, liveMph = NAN;
   int windDir = -1, liveDir = -1;
   uint32_t updatedMs = 0;
@@ -55,6 +55,7 @@ Outside gather() {
     o.dew = t.dewPointC;
     o.pressure = t.obs.pressureSea;
     o.rainToday = t.rainTodayMm;
+    o.rainRate = t.rainRateMmH;
     o.uv = t.obs.uv;
     o.solar = t.obs.solar;
     o.windAvg = t.obs.windAvg;
@@ -130,9 +131,10 @@ void outsideCard(const Outside &o) {
     textf(ax + 12, ry, F::XS, col, td::top_left, "%+.1f/%uh", trend, max<unsigned>(1, (mins + 30) / 60));
   }
   ry += STEP;
-  if (!isnan(o.rainToday)) snprintf(buf, sizeof(buf), "%.1f mm", o.rainToday);
+  if (!isnan(o.rainRate) && o.rainRate > 0.05f) snprintf(buf, sizeof(buf), "%.1f mm  %.1f/h", o.rainToday, o.rainRate);
+  else if (!isnan(o.rainToday)) snprintf(buf, sizeof(buf), "%.1f mm", o.rainToday);
   else snprintf(buf, sizeof(buf), "--");
-  row(ry, "Rain today", buf, C::BLUE);
+  row(ry, "Rain today / rate", buf, C::BLUE);
   ry += STEP;
   if (!isnan(o.uv)) snprintf(buf, sizeof(buf), "%.1f / %.0f W", o.uv, o.solar);
   else snprintf(buf, sizeof(buf), "--");
@@ -223,9 +225,17 @@ void outlookCard() {
 
   tm t;
   const RainSoon rs = Net::localTime(t) ? Weather::rainSoon(wx, t.tm_hour * 60 + t.tm_min) : RainSoon{};
-  char buf[40];
+  char buf[56];
   uint16_t col = C::GREEN;
-  switch (rs.state) {
+  const TempestData &tp = DataService::tempest();
+  const RadarEta &eta = DataService::radar().eta;
+  if (tp.fresh() && tp.rainRateMmH > 0.05f) {
+    snprintf(buf, sizeof(buf), "Raining now: %s, %.1f mm/h", Tempest::rainIntensity(tp.rainRateMmH), tp.rainRateMmH);
+    col = C::BLUE;
+  } else if (eta.valid && eta.approaching && !eta.rainingHere && eta.minutes <= 120) {
+    snprintf(buf, sizeof(buf), "Radar: rain in ~%d min from the %s", eta.minutes, Weather::compass(eta.fromDeg));
+    col = C::BLUE;
+  } else switch (rs.state) {
     case RainSoon::State::Dry: snprintf(buf, sizeof(buf), "Dry for the next 2 hours"); break;
     case RainSoon::State::Starting:
       snprintf(buf, sizeof(buf), "Rain starting in ~%d min", rs.minutes);
@@ -246,8 +256,14 @@ void outlookCard() {
     snprintf(buf, sizeof(buf), "AQI %d %s", aq.eaqi, AirQuality::band(aq.eaqi));
     cx += chip(cx, y + 78, buf, aqiColor(AirQuality::bandIndex(aq.eaqi)), C::BG, F::XS) + 8;
   }
-  snprintf(buf, sizeof(buf), "Sun %s - %s", wx.sunrise, wx.sunset);
-  chip(cx, y + 78, buf, C::CARD2, C::YELLOW, F::XS);
+  const FrostRisk fr = Frost::assess(wx, tp);
+  if (fr.level != FrostLevel::None) {
+    snprintf(buf, sizeof(buf), "%s", fr.headline);
+    chip(cx, y + 78, buf, frostColor(fr.level), C::BG, F::XS);
+  } else {
+    snprintf(buf, sizeof(buf), "Sun %s - %s", wx.sunrise, wx.sunset);
+    chip(cx, y + 78, buf, C::CARD2, C::YELLOW, F::XS);
+  }
 
   // Next 8 hours.
   const int hx = x + 440, colW = (w - 440 - 8) / 8;

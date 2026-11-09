@@ -20,8 +20,15 @@ Both show local conditions, forecast, an animated rain radar with a 2-hour nowca
 | Aurora alerts | AuroraWatch UK (Lancaster University) | HTTPS XML | 5 min |
 | Radar frames | RainViewer | HTTPS JSON + PNG tiles | 10 min |
 | Base map | OpenStreetMap standard tiles, restyled dark on device | HTTPS PNG | once per boot |
-| Aircraft | adsb.lol (ODbL) | HTTPS JSON (HTTP/1.1) | 30 s |
+| Aircraft | adsb.lol (ODbL) | HTTPS JSON (HTTP/1.1) | 20 s |
 | Flight routes | adsbdb | HTTPS JSON | per callsign, cached |
+| Aircraft photos | planespotters.net (credit shown; User-Agent with contact URL required) | HTTPS JSON + progressive JPEG | per aircraft, cached |
+| Grid carbon intensity | carbonintensity.org.uk, region 3 (North West England) | HTTPS JSON | 30 min |
+| NAS health | Glances REST API v4 (LAN, no login) | HTTP JSON | 60 s |
+| Internet speed | Speedtest Tracker `/api/speedtest/latest` (LAN) | HTTP/1.0 JSON | 60 s |
+| Service monitors | Uptime Kuma public status page (LAN) | HTTP JSON | 60 s |
+| Sonos | UPnP SOAP `GetTransportInfo` / `GetPositionInfo` on :1400 (LAN, read-only) | HTTP XML | 60 s |
+| Home Assistant | `POST /api/template` with a long-lived token (LAN) | HTTP JSON | 60 s |
 | Moon phase | computed on device | — | — |
 | Time | SNTP | UDP | continuous |
 
@@ -233,14 +240,17 @@ If no observation has arrived for 5 minutes, the UI falls back to Open-Meteo val
 
 | Page | Content | Touch |
 |---|---|---|
+| Grid | Carbon intensity now + band, low-carbon share, greenest 3 h in the next day, generation mix, 48 h forecast | — |
+| Home | Home Assistant: temperatures, humidity, people, lights, open doors/windows, heating, biggest power users; setup steps until a token is saved | — |
+| Lab | NAS CPU/memory/disk/temperature and container health, internet speed, Sonos now playing, Uptime Kuma services (down ones as chips) | — |
 | Now | Tempest temp/feels/high-low, humidity, dew point, pressure + trend, rain today, UV/solar; wind compass with live needle; outlook strip with next 8 hours | — |
 | Forecast | 24-hour temperature line with rain-probability bars and 3-hourly icons; 7-day cards | — |
 | Radar | 520×380 map (~375 × 275 km), 9-frame loop; 2-hour rain chart | Tap map: pause; left/right third steps frames; middle resumes |
 | Air | EAQI + scale, pollutants vs WHO guideline, UV, pollen | — |
 | Sky | Sun arc with live position, sunrise/sunset, daylight, sunshine; moon phase | — |
-| Alerts | Met Office warnings; AuroraWatch level, 24 h chart; Tempest lightning | — |
-| Flights | North-up scope with labelled aircraft (colour = altitude); details card | **Tap a plane** to select it and fetch its route; tap empty sky for nearest |
-| History | 24 h / 3 d / 7 d charts: temperature, pressure, wind/gust, rain | Range buttons |
+| Alerts | Met Office warnings; **frost & ice risk**; AuroraWatch level, 24 h chart; Tempest lightning | — |
+| Flights | North-up scope with labelled aircraft (colour = altitude) and **trails**; details card with **photo**, route, cities, airline | **Tap a plane** to select it and fetch its route and photo; tap empty sky for nearest |
+| History | **Summary** (today, yesterday, records over 7/30/90 days) or charts over 24 h / 7 d / 30 d / 90 d | Mode buttons |
 | System | Network, Tempest hub/sensor, display health, feed ages | — |
 
 Navigation: tap a tab, swipe left/right, or tap the status-bar icons to open Alerts.
@@ -265,9 +275,22 @@ sequenceDiagram
 
 ---
 
+### New derived features
+
+| Feature | How |
+|---|---|
+| **Rain rate** | Tempest 1-minute rain x 60 = mm/h, with peak today and peak per history interval; Met Office intensity bands (light < 2.5, moderate < 10, heavy < 50 mm/h). The Now page shows "Raining now" from the Tempest before any forecast. |
+| **Frost & ice risk** (`frost.*`) | Rules on Tempest air temperature, dew point and wet surfaces (rain in the last hour/day), plus the forecast minimum over the next 12 h; shown as a chip on Now, a card on Alerts, and a status-bar chip at Moderate+. |
+| **Radar rain arrival** (`Radar::estimate`) | Rain mask = pixels differing from the cached base map, on a 4 px grid. Motion = the shift (within +/-8 cells, ~23 km) that best overlaps consecutive frames, averaged over the last 3 pairs. From home, walk upwind in a 5-cell corridor to the first rain; distance / speed = minutes. Computed after each radar refresh; shown on Radar and Now. |
+| **Plane trails** | Each poll carries forward the previous positions of aircraft still in range (matched by ICAO hex), up to 10 points (~3 min at 20 s polls). |
+| **Aircraft photos** | `requestPhoto(hex)` -> worker fetches the planespotters thumbnail_large (420x280, progressive JPEG) into a 6-entry PSRAM cache; the UI decodes it once with **stb_image** (TJpgDec can't do progressive) and box-scales it to 210x140. |
+| **Records & summaries** | Computed on the History page from the 90-day log: today/yesterday highs and lows with times, strongest gust, rain and peak rate, lightning; 7/30/90-day extremes with dates, total rain, wettest day, wet days. |
+
 ## 7. History log (shared)
 
-- Fixed-size records in a LittleFS ring file (`/history.bin`), one per quarter hour, 768 slots (8 days). Layout **v2** adds Tempest fields; a version mismatch starts a fresh log.
+- Fixed-size 62-byte records, one per quarter hour, in **append-only weekly files** `/hist/w<week>.bin` (week = UTC days / 7) on LittleFS. Retention is `HISTORY_DAYS`: **90 days on the CrowPanel** (~14 files, ~540 KB of 896 KB), 8 days on the Feather (128 KB partition). When a new week starts, files older than the retention are deleted. `/hist/meta.bin` holds the layout version (**v4**) and record size; a mismatch clears the log.
+- Why weekly files: LittleFS stores a file as a chain of blocks, so modifying bytes near the start of a large file (as a ring buffer does) rewrites everything after it. That needs free space the size of the file and wears the flash. Appends touch only the last block, and pruning is a file delete.
+- Why not SQLite: records are fixed-size and time-ordered, so files already are the index; a 90-day read is one sequential pass. SQLite on ESP32 would add ~400 KB of code plus page-cache RAM for queries that are simple loops here.
 - Each record holds:
   - Open-Meteo: temperature, feels-like, humidity, pressure, 15-min rain, wind, gust, direction, weather code
   - Air quality: EAQI, PM2.5
@@ -276,14 +299,49 @@ sequenceDiagram
   - Device: battery (Feather), Wi-Fi RSSI, aircraft count
 - The web CSV (`/history.csv?days=N`) has 30 columns. Dashboard charts prefer Tempest series and hide any series with no data.
 
+### Home Assistant summary
+
+Instead of `/api/states` (hundreds of KB), the device POSTs one Jinja template to `/api/template` and Home Assistant renders a compact JSON summary server-side: numeric temperature/humidity/power sensors, persons, climate entities, light counts and open door/window binary sensors. The token is sent as `Authorization: Bearer`.
+
+### Lessons from bring-up
+
+- Uptime Kuma's heartbeat document holds ~100 beats per monitor; building a JSON tree from it exhausted internal RAM and crashed the worker. Only the latest `"status"` per monitor is now read by scanning the text.
+- LittleFS stores files as block chains, so rewriting near the start of a large file rewrites the rest of it. The 90-day log therefore uses append-only weekly files (see section 7).
+
 ## 8. Web dashboard (shared)
 
 | Path | Content |
 |---|---|
-| `/` | Live mirrors of every page (click to enlarge with fast refresh), 24 h / 3 d / 7 d charts, CSV link |
+| `/` | **Native dashboard** (tabs: Now, Forecast, Radar, Flights, Air & Grid, Sky & Alerts, Home, Lab, History, Mirror, System) |
+| `/api/state.json` | Everything the device knows in one ~8 KB JSON document (refreshed by the page every 20 s) |
+| `/api/photo?hex=` | Cached aircraft photo (JPEG); 202 while being fetched |
+| `/api/lookup?hex=&cs=` | Queue a route + photo lookup for an aircraft |
 | `/screen.bmp?p=N` | 24-bit BMP of page N: 240×135 (Feather), 400×240 (CrowPanel) |
 | `/api/now.json` | Current values, source, page list; CrowPanel adds render timings and last tap |
-| `/history.csv?days=N` | History log |
+| `/history.csv?days=N` | History log (up to `HISTORY_DAYS`; 32 columns incl. rain rate and carbon) |
+| `/settings` | Settings form (GET) and save (POST) |
+| `/api/settings` | Non-secret settings; secrets only as `"set"` / `"not set"` |
+
+### Native dashboard
+
+The page is rendered in the browser from `/api/state.json`, `/history.csv` and `/api/now.json`; the device only serves JSON (and the page itself from flash).
+
+- **Radar** and **Flights** use Leaflet maps. The browser fetches OpenStreetMap and RainViewer tiles itself, so the maps are zoomable and cost the device nothing. Radar frames animate with a scrubber; the device's own rain-arrival estimate is shown alongside.
+- **Flights** plots aircraft at their reported positions with trails, colour by altitude; clicking a plane (or table row) shows its cached photo (`/api/photo`), route, cities and airline, and links to adsb.lol.
+- Charts (forecast, 3-hour Tempest trends, grid forecast, aurora, history up to 90 days) use Chart.js.
+- **Mirror** keeps the original live screenshots of the device display.
+- Chart.js and Leaflet load from cdn.jsdelivr.net / cdnjs.cloudflare.com, so the browser (not the device) needs internet access.
+
+Implementation notes: the JSON is serialised while holding the data lock because ArduinoJson 7 stores `const char[N]` strings by pointer; strings from local variables are copied explicitly; any control byte from external text is replaced with a space so the JSON stays valid.
+
+### Settings page (write-only secrets)
+
+Runtime settings live in NVS (`Preferences`, namespace `wxcfg`) and override the build-time defaults from `config.h`/`secrets.h`. Editable: Home Assistant URL and **token**, NAS host and Glances/Speedtest/Kuma ports, Uptime Kuma slug, Sonos IPs, day/night backlight, Wi-Fi SSID and **password** (applied after restart; falls back to the compiled-in network if it fails), and an optional **settings password**.
+
+- **Secrets are write-only.** Password inputs are never pre-filled; the page and `/api/settings` show only "set"/"not set". A blank field keeps the stored value; a "clear" box removes it.
+- When a settings password is set, saving requires it.
+- Inputs are validated (ports 1-65535, backlight ranges, URL scheme); an invalid form saves nothing.
+- The page is plain HTTP on the LAN: anyone who can reach it can *replace* settings (unless protected) but cannot *read* secrets.
 
 Hostnames: `weather.local` (Feather), `weather7.local` (CrowPanel). Each board plugs into the shared server through `WebUi::Board`: its size, pages, a snapshot hook and extra JSON.
 

@@ -142,6 +142,26 @@ uint16_t aqiColor(uint8_t b) {
   return colors[min<uint8_t>(b, 5)];
 }
 
+uint16_t carbonColor(CarbonIndex i) {
+  switch (i) {
+    case CarbonIndex::VeryLow: return rgb(40, 170, 90);
+    case CarbonIndex::Low: return C::GREEN;
+    case CarbonIndex::Moderate: return C::YELLOW;
+    case CarbonIndex::High: return C::ORANGE;
+    case CarbonIndex::VeryHigh: return C::RED;
+    default: return C::DIM;
+  }
+}
+
+uint16_t frostColor(FrostLevel l) {
+  switch (l) {
+    case FrostLevel::Low: return rgb(150, 200, 255);
+    case FrostLevel::Moderate: return C::CYAN;
+    case FrostLevel::High: return rgb(200, 160, 255);
+    default: return C::DIM;
+  }
+}
+
 void hhmm(time_t t, char *buf) {
   tm lt;
   localtime_r(&t, &lt);

@@ -14,3 +14,9 @@
 
 /** @brief Wi-Fi password. */
 #define WIFI_PASSWORD  "YOUR_WIFI_PASSWORD"
+
+/**
+ * @brief Optional Home Assistant long-lived access token (enables the Home page).
+ *        Create one in Home Assistant: your profile -> Security -> Long-lived access tokens.
+ */
+// #define HA_TOKEN "paste-your-long-lived-access-token-here"
