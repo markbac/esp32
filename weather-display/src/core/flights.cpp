@@ -3,6 +3,7 @@
  * @brief   adsb.lol client, adsbdb route lookup and route cache.
  */
 #include "flights.h"
+#include "log.h"
 
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
@@ -14,6 +15,7 @@
 #include "config.h"
 #include "geo.h"
 #include "https_get.h"
+#include "settings.h"
 
 namespace {
 
@@ -171,7 +173,7 @@ void fetchPhoto(const char *hex) {
       free(buf);
     }
   }
-  Serial.printf("[photo] %s: %s (%u bytes)\n", hex, p.exists ? "found" : "none", static_cast<unsigned>(p.len));
+  Log::printf("[photo] %s: %s (%u bytes)\n", hex, p.exists ? "found" : "none", static_cast<unsigned>(p.len));
 
   CacheLock lock;
   Photo &slot = photos[photoNext];
@@ -215,21 +217,28 @@ bool fetch(FlightList &out) {
     f[k] = true;
 
   JsonDocument doc;
-  const String url = String("https://api.adsb.lol/v2/point/") + WX_LATITUDE + "/" + WX_LONGITUDE + "/" + FLIGHT_RADIUS_NM;
+  const uint16_t radius = Settings::get().flightRadiusNm;
+  const String url = String("https://api.adsb.lol/v2/point/") + WX_LATITUDE + "/" + WX_LONGITUDE + "/" + radius;
   // adsb.lol requires HTTP/1.1 (answers 426 to 1.0), so read the whole body:
   // getString() decodes chunked encoding, and large Strings land in PSRAM.
   const bool ok = Https::get(
       url, "flights",
       [&](HTTPClient &http) {
         const DeserializationError err = deserializeJson(doc, http.getString(), DeserializationOption::Filter(filter));
-        if (err) Serial.printf("[flights] JSON error: %s\n", err.c_str());
+        if (err) Log::printf("[flights] JSON error: %s\n", err.c_str());
         return !err;
       },
       false);
   if (!ok) return false;
 
   const double homeLat = atof(WX_LATITUDE), homeLon = atof(WX_LONGITUDE);
-  FlightList list;
+  static FlightList list;  // Too big for the worker's stack with MAX_AIRCRAFT raised; only the worker calls fetch().
+  list.valid = false;  // Reset field by field: a FlightList{} temporary would land on the stack too.
+  list.count = 0;
+  list.total = 0;
+  list.nearest = -1;
+  list.route = FlightRoute{};
+  list.radiusNm = radius;
   JsonArray ac = doc["ac"];
   list.total = ac.size();
 
@@ -281,10 +290,10 @@ bool fetch(FlightList &out) {
 
   if (list.nearest >= 0) {
     const Aircraft &n = list.items[list.nearest];
-    Serial.printf("[flights] %u aircraft; nearest %s %s %ldft %ukt %.1fnm %s %s-%s\n", list.total, n.callsign, n.type,
+    Log::printf("[flights] %u aircraft; nearest %s %s %ldft %ukt %.1fnm %s %s-%s\n", list.total, n.callsign, n.type,
                   static_cast<long>(n.altFt), n.speedKt, n.distNm, list.route.airline, list.route.from, list.route.to);
   } else {
-    Serial.printf("[flights] %u aircraft, none airborne\n", list.total);
+    Log::printf("[flights] %u aircraft, none airborne\n", list.total);
   }
   return true;
 }
@@ -339,7 +348,7 @@ bool resolvePending() {
   }
   FlightRoute route;
   lookupRoute(cs, route);
-  Serial.printf("[route] %s: %s %s-%s\n", cs, route.known ? route.airline : "unknown", route.from, route.to);
+  Log::printf("[route] %s: %s %s-%s\n", cs, route.known ? route.airline : "unknown", route.from, route.to);
   return true;
 }
 

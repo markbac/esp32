@@ -36,3 +36,6 @@ constexpr uint32_t CP_RENDER_MS = 1000;         ///< Full-frame redraw period (r
 constexpr uint32_t CP_TOUCH_POLL_MS = 20;       ///< Touch sampling period.
 constexpr int CP_SWIPE_MIN_PX = 90;             ///< Horizontal drag that counts as a swipe.
 constexpr int CP_TAP_MAX_MOVE_PX = 25;          ///< Movement still counted as a tap.
+constexpr int CP_DRAG_MIN_PX = 40;              ///< Vertical drag that scrolls a list page.
+constexpr uint32_t CP_TOUCH_HOLD_MS = 60UL * 1000UL;  ///< Auto page waits this long after a touch.
+constexpr uint32_t CP_WAKE_MS = 60UL * 1000UL;  ///< Screen stays on this long after a touch in sleep hours.

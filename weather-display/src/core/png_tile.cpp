@@ -3,6 +3,7 @@
  * @brief   Implementation of PNG tile download and decode.
  */
 #include "png_tile.h"
+#include "log.h"
 
 #include <PNGdec.h>
 #include <esp_heap_caps.h>
@@ -121,7 +122,7 @@ namespace PngTile {
 
 bool download(const String &url, const char *tag, uint8_t *&data, size_t &len) {
   if (!ensureBuffers()) {
-    Serial.printf("[%s] out of memory for tile buffers\n", tag);
+    Log::printf("[%s] out of memory for tile buffers\n", tag);
     return false;
   }
   size_t n = 0;

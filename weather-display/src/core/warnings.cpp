@@ -7,6 +7,7 @@
  *          isn't needed.
  */
 #include "warnings.h"
+#include "log.h"
 
 #include "config.h"
 #include "https_get.h"
@@ -115,9 +116,9 @@ bool fetch(WarningList &out) {
   list.fetchedAtMs = millis();
   out = list;
 
-  Serial.printf("[warnings] region %s, filter '%s': %u active\n", WARNING_REGION, WARNING_AREA_FILTER, list.total);
+  Log::printf("[warnings] region %s, filter '%s': %u active\n", WARNING_REGION, WARNING_AREA_FILTER, list.total);
   for (int i = 0; i < list.count; ++i) {
-    Serial.printf("[warnings]   %s %s: %s\n", levelName(list.items[i].level), list.items[i].hazard, list.items[i].validity);
+    Log::printf("[warnings]   %s %s: %s\n", levelName(list.items[i].level), list.items[i].hazard, list.items[i].validity);
   }
   return true;
 }

@@ -9,6 +9,7 @@
 #include "config.h"
 #include "connectivity.h"
 #include "history.h"
+#include "log.h"
 #include "ui_draw.h"
 
 namespace UiDraw {
@@ -94,6 +95,13 @@ void pageSystem() {
   snprintf(buf, sizeof(buf), "GT911 0x%02X%s, pclk %lu MHz", Display::touchAddress(), Display::hasExpander() ? " +PCA9557" : "",
            static_cast<unsigned long>(CP_PCLK_HZ / 1000000));
   kv(x0, cw, y, "Hardware", buf);
+  y += step;
+  if (Log::sdReady()) {
+    snprintf(buf, sizeof(buf), "%.1f / %.1f GB, logs at /logs", Log::sdUsed() / 1e9, Log::sdTotal() / 1e9);
+    kv(x0, cw, y, "SD card", buf, C::GREEN);
+  } else {
+    kv(x0, cw, y, "SD card", "none (logs in RAM only)", C::DIM);
+  }
 
   // Feeds.
   card(x1, y1, cw, ch, "Data feeds");

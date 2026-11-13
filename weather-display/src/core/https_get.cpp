@@ -3,6 +3,7 @@
  * @brief   Implementation of the shared HTTP(S) request helper.
  */
 #include "https_get.h"
+#include "log.h"
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -29,7 +30,7 @@ bool request(const char *method, const String &url, const char *tag, const Strin
 
   const bool begun = tls ? http.begin(secure, url) : http.begin(plain, url);
   if (!begun) {
-    Serial.printf("[%s] bad URL\n", tag);
+    Log::printf("[%s] bad URL\n", tag);
     return false;
   }
   for (const auto &h : opt.headers) http.addHeader(h.first, h.second);
@@ -37,7 +38,7 @@ bool request(const char *method, const String &url, const char *tag, const Strin
   const int status = strcmp(method, "POST") == 0 ? http.POST(body) : http.GET();
   if (statusOut) *statusOut = status;
   if (status != HTTP_CODE_OK) {
-    Serial.printf("[%s] HTTP error %d\n", tag, status);
+    Log::printf("[%s] HTTP error %d\n", tag, status);
     http.end();
     return false;
   }

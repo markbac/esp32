@@ -168,6 +168,11 @@ Each environment compiles `src/core` plus its own board folder (`build_src_filte
 | AsyncUDP | any | Tempest packets → shared store |
 | Arduino `loop()` | 1 | Touch/buttons, render, backlight, history |
 | `web` | 1 | HTTP server |
+| `nettest` | 0 | One-shot network test (pings, DNS, HTTPS download); yields every 4 KB so the idle task is never starved |
+| `monitor` | 0 | Monitor run: two continuous `esp_ping` sessions plus a 1 s sampler; exits when the run ends |
+
+- **Wi-Fi survey** runs from the UI loop as an asynchronous scan every minute. Scans are held off while a test or monitor runs, because a scan takes the radio off-channel for about 2 s and would show up as 500 ms lag spikes.
+- **Logging:** `Log::printf` may be called from any task; lines go to serial, a RAM tail and an SD buffer under a small mutex. Only the UI loop writes the buffer to the card (every 5 s).
 
 - **One data mutex** guards the shared store. Writers fill a private staging object and copy it in under the lock, so a failed fetch never blanks the screen. Readers draw while holding the lock.
 - **CrowPanel canvas lock:** the display loop and web snapshots both compose into the one 800×480 sprite, so a second mutex serialises them. Lock order is always canvas → data.
@@ -249,11 +254,20 @@ If no observation has arrived for 5 minutes, the UI falls back to Open-Meteo val
 | Air | EAQI + scale, pollutants vs WHO guideline, UV, pollen | — |
 | Sky | Sun arc with live position, sunrise/sunset, daylight, sunshine; moon phase | — |
 | Alerts | Met Office warnings; **frost & ice risk**; AuroraWatch level, 24 h chart; Tempest lightning | — |
-| Flights | North-up scope with labelled aircraft (colour = altitude) and **trails**; details card with **photo**, route, cities, airline | **Tap a plane** to select it and fetch its route and photo; tap empty sky for nearest |
+| Flights | North-up scope with labelled aircraft (colour = altitude) and **trails**; details card with **photo**, route, cities, airline. **List** view: every aircraft kept (up to 48), nearest first, with type, registration, altitude, speed, climb, distance, bearing and route | **Tap a plane** to select it; tap empty sky for nearest. **List** / **Scope** toggles the view; drag or arrows scroll the list; tap a row to show it on the scope. **Radius - / +** (5 to 100 nm) re-polls at once and is saved |
 | History | **Summary** (today, yesterday, records over 7/30/90 days) or charts over 24 h / 7 d / 30 d / 90 d | Mode buttons |
-| System | Network, Tempest hub/sensor, display health, feed ages | — |
+| Network: Signal | Live signal of the joined access point with a -90 to -40 dBm scale; every network in range (scan each minute); 3-hour signal history of the strongest six | Tap a network to highlight it on the graph; drag or arrows scroll |
+| Network: Test | What the test does, then results: router and internet ping (avg, max, jitter, loss), DNS, download speed, verdict and a plain-English diagnosis | Run test |
+| Network: Monitor | 15 min to 2 h glitch watch: per-minute timeline of router/internet ping, spikes, lost pings and drop-outs, plus totals and a verdict | Duration chips, Start / Stop |
+| Network: Help | What each figure means and how to track down a problem | - |
+| System: Status | Network, Tempest hub/sensor, display health, SD card, feed ages | - |
+| System: Settings | Auto page on/off, seconds per page, **which pages it rotates through**; sleep mode on/off with sleep and wake times; day/night backlight | Toggles and steppers; saved to flash 3 s after the last tap |
 
-Navigation: tap a tab, swipe left/right, or tap the status-bar icons to open Alerts.
+**Navigation.** The bottom bar has seven groups (Weather, Air, Flights, History, Home, Network, System); a group's pages appear as sub-tabs in the middle of the status bar, and dots under each bottom tab show how many pages it has. Tapping a group reopens the page last used in it; tapping the open group again moves to its next page. Swipe left/right steps through every page in order; drag up/down scrolls list pages. The status-bar icons open Alerts.
+
+**Auto page.** When on, the panel moves to the next ticked page every N seconds (5 s to 10 min). It waits a minute after any touch, never leaves the Settings page, and holds still while a network test or monitor is running.
+
+**Sleep mode.** Between the sleep and wake times (the window may cross midnight) the backlight is off and nothing is drawn. A touch wakes the screen for a minute; that first touch is swallowed so it cannot press anything. Nothing else stops: data, history, the web server and any monitor keep running.
 
 ### Flight selection flow
 
@@ -345,6 +359,20 @@ Runtime settings live in NVS (`Preferences`, namespace `wxcfg`) and override the
 
 Hostnames: `weather.local` (Feather), `weather7.local` (CrowPanel). Each board plugs into the shared server through `WebUi::Board`: its size, pages, a snapshot hook and extra JSON.
 
+### Network tools and SD logging
+
+| Module | What it does |
+|---|---|
+| `wifi_scan` | Async scan every 60 s, merged by BSSID into a 3-hour RSSI ring (32 networks x 180 samples, PSRAM) |
+| `net_test` | Quick test (20 pings to the gateway, 20 to 1.1.1.1, DNS lookup, 8 s HTTPS download from speed.cloudflare.com) and the monitor (1 Hz pings to both, per-minute log of up to 120 minutes). Verdicts: Good / OK / Poor / Bad for the test; Healthy / Internet issues / Wi-Fi unstable / Wi-Fi problem for the monitor |
+| `log` | Serial + 16 KB RAM tail + SD card (`/logs/app-YYYY-MM-DD.log`, `/logs/net-YYYY-MM-DD.csv`), 60 days kept. Web: `/logs`, `/logs/file?name=`, `/logs/tail`, `/api/logs`; tests can be started with `POST /api/nettest` (`action=test`, `action=monitor&minutes=30`, `action=stop`) |
+
+The download figure is what the ESP32 itself manages (single-antenna 2.4 GHz with TLS, typically 1 to 10 Mbps). It is for comparing rooms, not for checking the broadband speed; latency, jitter and loss are the useful measures of lag.
+
+The SD card slot is on SPI: CS 10, MOSI 11, CLK 12, MISO 13. Cards must be FAT32 (cards over 32 GB usually come as exFAT and need reformatting). Mounting tries 20 MHz, then 4 MHz.
+
+**Wi-Fi watchdog.** `Net::maintain()` re-joins after 20 s offline. Auto-reconnect alone did not recover from a failed first association during testing.
+
 ## 9. Memory (CrowPanel)
 
 | Item | Size |
@@ -369,6 +397,9 @@ Hostnames: `weather.local` (Feather), `weather7.local` (CrowPanel). Each board p
 | Render at 1 fps except radar | A full frame costs ~200 ms; constant redraws starved web snapshots |
 | OSM tiles restyled dark | CARTO now needs an API key; OSM tiles are free with attribution and fetched once |
 | PCA9557 detection | One binary works on V2.x and V3.0 CrowPanels |
+| Sub-tabs in the status bar | 14+ pages no longer fit one tab bar; the status bar had spare width, so no page layout had to change |
+| Pings from `esp_ping` | Part of ESP-IDF, no extra library; one session per target with callbacks |
+| Settings saved 3 s after the last tap | A run of taps on the Settings or Flights page costs one flash write |
 | `png_simd_fallback.c` | PNGdec calls an S3 SIMD routine on generic S3 boards; its assembly needs esp-dsp headers, so a C version replaces it |
 
 ## 11. Build and flash

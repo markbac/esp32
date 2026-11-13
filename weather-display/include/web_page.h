@@ -78,7 +78,7 @@ static const char WEB_PAGE[] = R"HTML(<!doctype html>
   <h1 id="title">Weather Station</h1>
   <span class="clock" id="clock"></span>
   <span class="chips" id="pills"></span>
-  <a class="cfg" href="/settings">&#9881; Settings</a>
+  <a class="cfg" href="/logs">&#128196; Logs</a> <a class="cfg" href="/settings">&#9881; Settings</a>
 </header>
 <nav id="nav"></nav>
 <main>

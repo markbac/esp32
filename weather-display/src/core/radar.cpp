@@ -8,6 +8,7 @@
  *          (c) OpenStreetMap contributors, RainViewer.
  */
 #include "radar.h"
+#include "log.h"
 
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
@@ -62,7 +63,7 @@ bool composeTiles(uint16_t *dst, const TileUrl &url, PngTile::Mode mode, const c
       const int offX = static_cast<int>(tx * Geo::TILE_SIZE - ox);
       const int offY = static_cast<int>(ty * Geo::TILE_SIZE - oy);
       if (!PngTile::blit(data, len, dst, RadarLoop::W, RadarLoop::H, offX, offY, mode)) {
-        Serial.printf("[%s] PNG decode failed for tile %ld/%ld\n", tag, tx, ty);
+        Log::printf("[%s] PNG decode failed for tile %ld/%ld\n", tag, tx, ty);
         return false;
       }
     }
@@ -82,7 +83,7 @@ bool ensureBasemap() {
         return "https://tile.openstreetmap.org/" + String(RADAR_ZOOM) + "/" + x + "/" + y + ".png";
       },
       PngTile::Mode::DarkMap, "basemap");
-  if (basemapReady) Serial.println("[radar] base map cached");
+  if (basemapReady) Log::println("[radar] base map cached");
   return basemapReady;
 }
 

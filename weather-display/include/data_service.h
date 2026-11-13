@@ -33,6 +33,9 @@ void begin();
 /** @brief Ask the worker to refresh every feed as soon as possible. */
 void refreshAll();
 
+/** @brief Ask the worker to refresh one feed (by name, e.g. "flights") as soon as possible. */
+void refresh(const char *feed);
+
 /** @brief Take the data lock (blocks). */
 void lock();
 

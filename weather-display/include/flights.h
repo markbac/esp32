@@ -58,8 +58,10 @@ struct FlightRoute {
   char toCity[24] = "";    ///< Destination municipality.
 };
 
-/** @brief Maximum aircraft kept, nearest first. */
-constexpr uint8_t MAX_AIRCRAFT = 24;
+/** @brief Maximum aircraft kept, nearest first (CrowPanel builds keep more for the list view). */
+#ifndef MAX_AIRCRAFT
+#define MAX_AIRCRAFT 24
+#endif
 
 /** @brief Result of one poll. */
 struct FlightList {
@@ -68,6 +70,7 @@ struct FlightList {
   Aircraft items[MAX_AIRCRAFT];     ///< Sorted by distance, nearest first.
   uint8_t count = 0;                ///< Entries in @ref items.
   uint16_t total = 0;               ///< Aircraft reported within range.
+  uint16_t radiusNm = 25;           ///< Search radius used for this poll.
   int8_t nearest = -1;              ///< Index of nearest airborne aircraft, or -1.
   FlightRoute route;                ///< Route of @ref nearest (if known).
 };
@@ -75,7 +78,7 @@ struct FlightList {
 namespace Flights {
 
 /**
- * @brief  Poll aircraft within FLIGHT_RADIUS_NM and look up the nearest one's route.
+ * @brief  Poll aircraft within the configured radius (Settings, default FLIGHT_RADIUS_NM) and look up the nearest one's route.
  * @param[out] out  Overwritten only on success.
  * @return true on success (an empty sky is a success).
  */

@@ -36,12 +36,12 @@ void scope(const FlightList &fl) {
   canvas.fillCircle(SCOPE_CX, SCOPE_CY, 2, Theme::CYAN);
 
   char buf[8];
-  snprintf(buf, sizeof(buf), "%dnm", FLIGHT_RADIUS_NM);
+  snprintf(buf, sizeof(buf), "%unm", fl.radiusNm);
   text(buf, 1, 120, 1, Theme::GREY);
 
   // Trails: previous positions (one per poll), drawn under the aircraft.
   auto toXY = [&](float dist, float bearing, int &x, int &y) {
-    const float r = min(dist, static_cast<float>(FLIGHT_RADIUS_NM)) / FLIGHT_RADIUS_NM * SCOPE_R;
+    const float rad = fl.radiusNm, r = min(dist, rad) / rad * SCOPE_R;
     x = SCOPE_CX + lroundf(sinf(bearing * DEG_TO_RAD) * r);
     y = SCOPE_CY - lroundf(cosf(bearing * DEG_TO_RAD) * r);
   };
@@ -65,8 +65,8 @@ void scope(const FlightList &fl) {
     for (int i = 0; i < fl.count; ++i) {
       const Aircraft &a = fl.items[i];
       const bool isNearest = (i == fl.nearest);
-      if (a.onGround || isNearest != (pass == 1) || a.distNm > FLIGHT_RADIUS_NM) continue;
-      const float r = a.distNm / FLIGHT_RADIUS_NM * SCOPE_R;
+      if (a.onGround || isNearest != (pass == 1) || a.distNm > fl.radiusNm) continue;
+      const float r = a.distNm / fl.radiusNm * SCOPE_R;
       const float b = a.bearing * DEG_TO_RAD;
       const int x = SCOPE_CX + lroundf(sinf(b) * r), y = SCOPE_CY - lroundf(cosf(b) * r);
       Icons::plane(canvas, x, y, isNearest ? 14 : 8, a.track, isNearest ? Theme::YELLOW : Theme::WHITE);
@@ -79,7 +79,7 @@ void details(const FlightList &fl) {
   char buf[32];
   if (fl.nearest < 0) {
     centered("No aircraft", INFO_X + 60, 60, 1, Theme::LIGHT);
-    snprintf(buf, sizeof(buf), "within %dnm", FLIGHT_RADIUS_NM);
+    snprintf(buf, sizeof(buf), "within %unm", fl.radiusNm);
     centered(buf, INFO_X + 60, 72, 1, Theme::GREY);
     return;
   }

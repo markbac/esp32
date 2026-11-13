@@ -3,6 +3,8 @@
  * @brief   HTTP routes, BMP screenshot encoder, JSON/CSV writers.
  */
 #include "web_ui.h"
+#include "log.h"
+#include "net_test.h"
 
 #include <ESPmDNS.h>
 #include <WebServer.h>
@@ -236,7 +238,7 @@ void begin(const Board &b) {
   board = b;
   snapBuf = static_cast<uint16_t *>(heap_caps_malloc(board.width * board.height * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!snapBuf) {
-    Serial.println("[web] no memory for screenshot buffer");
+    Log::println("[web] no memory for screenshot buffer");
     return;
   }
 
@@ -244,6 +246,10 @@ void begin(const Board &b) {
 
   server.on("/", HTTP_GET, [] { server.send(200, "text/html", WEB_PAGE); });
   server.on("/screen.bmp", HTTP_GET, handleScreen);
+  Log::registerRoutes(server);
+#if ENABLE_NET_TOOLS
+  NetTest::registerRoutes(server);  // CrowPanel only: keeps the Feather image within its flash slot.
+#endif
   server.on("/api/now.json", HTTP_GET, handleNow);
   server.on("/history.csv", HTTP_GET, handleHistory);
   WebSettings::registerRoutes(server);
@@ -252,7 +258,7 @@ void begin(const Board &b) {
   server.begin();
 
   xTaskCreatePinnedToCore(serverTask, "web", 8192, nullptr, 1, nullptr, 1);
-  Serial.printf("[web] http://%s.local/  (http://%s/)\n", HOSTNAME, Net::ip().c_str());
+  Log::printf("[web] http://%s.local/  (http://%s/)\n", HOSTNAME, Net::ip().c_str());
 }
 
 }  // namespace WebUi

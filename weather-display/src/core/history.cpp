@@ -3,6 +3,7 @@
  * @brief   Append-only weekly-file implementation of the history log (LittleFS).
  */
 #include "history.h"
+#include "log.h"
 
 #include <FS.h>
 #include <LittleFS.h>
@@ -78,7 +79,7 @@ void prune(uint32_t currentWeek) {
       if (f) f.close();
       LittleFS.remove(weekPath(w));
       recordCount -= min<uint32_t>(recordCount, n);
-      Serial.printf("[history] pruned week %lu (%u records)\n", static_cast<unsigned long>(w), static_cast<unsigned>(n));
+      Log::printf("[history] pruned week %lu (%u records)\n", static_cast<unsigned long>(w), static_cast<unsigned>(n));
     }
   }
 }
@@ -91,12 +92,12 @@ bool begin() {
   mutex = xSemaphoreCreateMutex();
   // Partition label "spiffs" from the partition table; format on first boot.
   if (!LittleFS.begin(true, "/littlefs", 5, "spiffs")) {
-    Serial.println("[history] LittleFS mount failed");
+    Log::println("[history] LittleFS mount failed");
     return false;
   }
   if (LittleFS.exists(LEGACY)) {
     LittleFS.remove(LEGACY);
-    Serial.println("[history] removed legacy ring file");
+    Log::println("[history] removed legacy ring file");
   }
   LittleFS.mkdir(DIR);
 
@@ -116,7 +117,7 @@ bool begin() {
     }
   }
   ready = true;
-  Serial.printf("[history] ready, %lu records in %u weekly files, FS %u/%u KB used\n",
+  Log::printf("[history] ready, %lu records in %u weekly files, FS %u/%u KB used\n",
                 static_cast<unsigned long>(recordCount), static_cast<unsigned>(listWeeks().size()),
                 LittleFS.usedBytes() / 1024, LittleFS.totalBytes() / 1024);
   return true;

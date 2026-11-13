@@ -10,9 +10,19 @@
  */
 #pragma once
 
+#include <stdint.h>
+
 class WebServer;
 
 namespace WebSettings {
+
+/**
+ * @brief Let the settings page offer a checkbox per page for auto paging.
+ * @param count      Pages on this board.
+ * @param name       Page name by index.
+ * @param rotatable  Whether a page may be included (others are not listed).
+ */
+void setPages(uint8_t count, const char *(*name)(uint8_t), bool (*rotatable)(uint8_t));
 
 /** @brief Register the settings routes on @p server. */
 void registerRoutes(WebServer &server);

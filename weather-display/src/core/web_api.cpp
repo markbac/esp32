@@ -251,7 +251,7 @@ void addSky(JsonObject o) {
 
 void addFlights(JsonObject o) {
   const FlightList &fl = DataService::flights();
-  o["radiusNm"] = FLIGHT_RADIUS_NM;
+  o["radiusNm"] = fl.valid ? fl.radiusNm : FLIGHT_RADIUS_NM;
   o["total"] = fl.total;
   if (!fl.valid) return;
   if (fl.nearest >= 0) o["nearestHex"] = fl.items[fl.nearest].hex;

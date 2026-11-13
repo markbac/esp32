@@ -8,6 +8,7 @@
  *          WeatherFlow UDP API v171.
  */
 #include "tempest.h"
+#include "log.h"
 
 #include <ArduinoJson.h>
 #include <AsyncUDP.h>
@@ -170,13 +171,13 @@ void dispatch(TempestData &d, JsonDocument &doc, const IPAddress &from) {
     lastStrikeEvt = t;
     d.lastStrikeTime = t;
     d.lastStrikeKm = e[1] | 0.0f;
-    Serial.printf("[tempest] lightning strike %.0f km away\n", d.lastStrikeKm);
+    Log::printf("[tempest] lightning strike %.0f km away\n", d.lastStrikeKm);
   } else if (strcmp(type, "evt_precip") == 0) {
     const uint32_t t = doc["evt"][0] | 0;
     if (t == lastPrecipEvt) return;
     lastPrecipEvt = t;
     d.rainStartTime = t;
-    Serial.println("[tempest] rain started");
+    Log::println("[tempest] rain started");
   } else if (strcmp(type, "device_status") == 0) {
     d.sensorVoltage = doc["voltage"] | 0.0f;
     d.sensorRssi = doc["rssi"] | 0;
@@ -213,11 +214,11 @@ namespace Tempest {
 
 bool begin() {
   if (!udp.listen(TEMPEST_PORT)) {
-    Serial.println("[tempest] UDP listen failed");
+    Log::println("[tempest] UDP listen failed");
     return false;
   }
   udp.onPacket(onPacket);
-  Serial.printf("[tempest] listening on UDP %u\n", TEMPEST_PORT);
+  Log::printf("[tempest] listening on UDP %u\n", TEMPEST_PORT);
   return true;
 }
 

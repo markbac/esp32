@@ -6,7 +6,8 @@
  * @verbatim
  *   y   0..43   status bar   [21:57 Sun 8 Nov]   [Page title]   [T][aurora][!][wifi]
  *   y  44..423  page body (800 x 380); cards inset 8 px
- *   y 424..479  tab bar (12): Now | Forecast | Radar | Air | Grid | Sky | Alerts | Flights | History | Home | Lab | System
+ *   y 424..479  tab bar (7 groups): Weather | Air | Flights | History | Home | Network | System
+ *               (a group's pages appear as sub-tabs in the middle of the status bar)
  * @endverbatim
  */
 #pragma once
@@ -75,6 +76,11 @@ struct UiState {
   int radarFrame = -1;            ///< Frame shown while paused.
   uint8_t historyDays = 0;        ///< History page: 0 = summary, else chart range in days.
   char selectedHex[7] = "";       ///< Aircraft selected on the Flights page.
+  bool flightsList = false;       ///< Flights page: list view instead of the scope.
+  int flightsScroll = 0;          ///< Flights list: first row shown.
+  int wifiScroll = 0;             ///< Wi-Fi page: first row shown.
+  uint8_t wifiBssid[6] = {};      ///< Wi-Fi page: network highlighted on the graph (all zero = none).
+  uint8_t monitorMins = 30;       ///< Wi-Fi page: length of the next monitor run.
 };
 extern UiState state;
 
@@ -103,6 +109,18 @@ void card(int x, int y, int w, int h, const char *title = nullptr);
 int chip(int x, int y, const char *label, uint16_t bg, uint16_t fg, F f = F::S);
 /** @brief Placeholder message centred in a box. */
 void placeholder(int x, int y, int w, int h, const char *msg);
+/**
+ * @brief Rounded touch button, registered for hit-testing on the page being drawn.
+ * @param id     Returned by buttonAt() when tapped.
+ * @param label  Centred text (nullptr = draw your own content on top).
+ */
+void button(int id, int x, int y, int w, int h, const char *label, bool active = false, F f = F::S);
+/** @brief Id of the button on the visible page under (@p x, @p y), or -1. */
+int buttonAt(int x, int y);
+/** @brief Forget the buttons registered for @p page (called before it is drawn). */
+void clearButtons(Page page);
+/** @brief Small filled triangle pointing up (@p up) or down, centred on (@p cx, @p cy). */
+void arrow(int cx, int cy, bool up, uint16_t color);
 /** @brief Wi-Fi bars icon (bars 0-4), 24 x 18. */
 void wifiBars(int x, int y, int bars, bool connected);
 /** @brief Filled warning triangle with "!" of the given size. */
@@ -135,10 +153,22 @@ void pageFlights();
 void pageHistory();
 void pageHome();
 void pageLab();
+void pageWifi();
+void pageNetTest();
+void pageNetMonitor();
+void pageNetHelp();
 void pageSystem();
+void pageSettings();
 bool tapRadar(int x, int y);
 bool tapFlights(int x, int y);
 bool tapHistory(int x, int y);
+bool tapWifi(int x, int y);
+bool tapNetTest(int x, int y);
+bool tapNetMonitor(int x, int y);
+bool tapSettings(int x, int y);
+/** @brief Vertical drag of @p dy pixels on a list page (negative = finger moved up). */
+bool dragFlights(int dy);
+bool dragWifi(int dy);
 ///@}
 
 }  // namespace UiDraw

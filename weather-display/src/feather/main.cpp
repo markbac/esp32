@@ -215,7 +215,10 @@ void loop() {
   pollButtons();
 
   if (PAGE_ROTATE_MS && due(lastPageChange, PAGE_ROTATE_MS)) page = nextAuto(page);
-  if (due(lastBatteryRead, BATTERY_INTERVAL_MS)) Battery::update();
+  if (due(lastBatteryRead, BATTERY_INTERVAL_MS)) {
+    Battery::update();
+    Net::maintain();
+  }
   if (due(lastLed, 50)) updateLed();
   if (due(lastSerialLog, SERIAL_LOG_INTERVAL_MS)) {
     logStatus();

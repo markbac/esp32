@@ -3,6 +3,7 @@
  * @brief   Builds HistoryRecords from DataService snapshots.
  */
 #include "recorder.h"
+#include "log.h"
 
 #include "config.h"
 #include "connectivity.h"
@@ -108,7 +109,7 @@ void begin() {
     if (r.flags & HF_TEMPEST) mm += r.tRain100 / 100.0f;
   }
   Tempest::seedRainToday(mm);
-  Serial.printf("[history] rain today restored: %.1f mm from %u records\n", mm, recs.size());
+  Log::printf("[history] rain today restored: %.1f mm from %u records\n", mm, recs.size());
 }
 
 bool poll(const DeviceBattery &battery) {
@@ -123,7 +124,7 @@ bool poll(const DeviceBattery &battery) {
   lastSlot = slot;
   const HistoryRecord r = build(now, battery);
   const bool ok = History::append(r);
-  Serial.printf("[history] %s record %u (%.1fC, Tempest %s)\n", ok ? "logged" : "FAILED to log", History::count(),
+  Log::printf("[history] %s record %u (%.1fC, Tempest %s)\n", ok ? "logged" : "FAILED to log", History::count(),
                 (r.flags & HF_TEMPEST ? r.tTemp10 : r.temp10) / 10.0f, r.flags & HF_TEMPEST ? "yes" : "no");
   return ok;
 }
