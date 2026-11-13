@@ -69,7 +69,9 @@ The panel's radio is **2.4 GHz only**: it cannot see 5 GHz networks or devices. 
 Put a FAT32 micro SD card in the CrowPanel's TF slot. Each day it writes:
 
 - `/logs/app-YYYY-MM-DD.log`: the firmware's debug log with timestamps
-- `/logs/net-YYYY-MM-DD.csv`: Wi-Fi scans, test results, monitor minutes and drop-outs
+- `/logs/net-YYYY-MM-DD.jsonl`: one JSON record per line for Wi-Fi scans, test results, air surveys (with the busiest devices and broadcast sources), monitor minutes and events
+
+For a device-by-device report with manufacturer names, run `python scripts/air_report.py --run` (vendor names come from the IEEE registry, downloaded once and looked up locally). `http://weather7.local/api/air.json` has the raw survey.
 
 Files older than 60 days are deleted. `http://weather7.local/logs` lists them for viewing or download and shows a live log (the live log works without a card too).
 
