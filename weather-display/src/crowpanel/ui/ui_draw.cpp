@@ -27,6 +27,16 @@ const lgfx::IFont *fontFor(F f) {
   return &fonts::DejaVu18;
 }
 
+/** @brief A button drawn on a page, for hit-testing. */
+struct Btn {
+  Page page;
+  int id;
+  int16_t x, y, w, h;
+};
+constexpr int MAX_BTNS = 64;
+Btn btns[MAX_BTNS];
+int btnCount = 0;
+
 /** @brief Text scale for F::HUGE (72 px font drawn 1.5x). */
 float scaleFor(F f) { return f == F::HUGE ? 1.5f : 1.0f; }
 
@@ -94,6 +104,44 @@ int chip(int x, int y, const char *label, uint16_t bg, uint16_t fg, F f) {
   canvas.fillRoundRect(x, y, w, h, h / 2, bg);
   text(label, x + 10, y + 5, f, fg);
   return w;
+}
+
+void button(int id, int x, int y, int w, int h, const char *label, bool active, F f) {
+  canvas.fillRoundRect(x, y, w, h, 8, active ? C::ACCENT : C::CARD2);
+  canvas.drawRoundRect(x, y, w, h, 8, active ? C::ACCENT : C::LINE);
+  if (label) text(label, x + w / 2, y + h / 2 + 1, f, active ? C::BG : C::TEXT, td::middle_center);
+  const Btn b{state.page, id, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(w),
+              static_cast<int16_t>(h)};
+  for (int i = 0; i < btnCount; ++i) {  // Same id drawn again: move it.
+    if (btns[i].page == state.page && btns[i].id == id) {
+      btns[i] = b;
+      return;
+    }
+  }
+  if (btnCount < MAX_BTNS) btns[btnCount++] = b;
+}
+
+int buttonAt(int x, int y) {
+  constexpr int slop = 6;  // Fingers are wider than borders.
+  for (int i = 0; i < btnCount; ++i) {
+    const Btn &b = btns[i];
+    if (b.page == state.page && x >= b.x - slop && x < b.x + b.w + slop && y >= b.y - slop && y < b.y + b.h + slop)
+      return b.id;
+  }
+  return -1;
+}
+
+void clearButtons(Page page) {
+  int k = 0;
+  for (int i = 0; i < btnCount; ++i) {
+    if (btns[i].page != page) btns[k++] = btns[i];
+  }
+  btnCount = k;
+}
+
+void arrow(int cx, int cy, bool up, uint16_t color) {
+  if (up) canvas.fillTriangle(cx, cy - 6, cx - 8, cy + 5, cx + 8, cy + 5, color);
+  else canvas.fillTriangle(cx, cy + 6, cx - 8, cy - 5, cx + 8, cy - 5, color);
 }
 
 void placeholder(int x, int y, int w, int h, const char *msg) {

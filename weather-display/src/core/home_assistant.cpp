@@ -3,6 +3,7 @@
  * @brief   Home Assistant template-API client.
  */
 #include "home_assistant.h"
+#include "log.h"
 
 #include <ArduinoJson.h>
 
@@ -82,7 +83,7 @@ bool fetch(HaData &out) {
       "POST", cfg.haUrl + "/api/template", "homeassistant", body,
       [&](HTTPClient &http) {
         const DeserializationError err = deserializeJson(doc, http.getString());
-        if (err) Serial.printf("[homeassistant] JSON error: %s\n", err.c_str());
+        if (err) Log::printf("[homeassistant] JSON error: %s\n", err.c_str());
         return !err;
       },
       opt, &status);
@@ -121,7 +122,7 @@ bool fetch(HaData &out) {
   d.valid = true;
   d.fetchedAtMs = millis();
   out = d;
-  Serial.printf("[homeassistant] %u temps, %u humidity, %u power, %u people, %u climate, lights %u/%u, %u open\n",
+  Log::printf("[homeassistant] %u temps, %u humidity, %u power, %u people, %u climate, lights %u/%u, %u open\n",
                 d.tempCount, d.humidityCount, d.powerCount, d.peopleCount, d.climateCount, d.lightsOn, d.lightsTotal,
                 d.openCount);
   return true;

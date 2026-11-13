@@ -3,6 +3,7 @@
  * @brief   Glances, Speedtest Tracker, Uptime Kuma and Sonos clients.
  */
 #include "homelab.h"
+#include "log.h"
 
 #include <ArduinoJson.h>
 
@@ -276,7 +277,7 @@ bool fetch(HomelabData &out) {
   d.valid = d.nas.ok || d.speed.ok || d.services.ok;
   d.fetchedAtMs = millis();
   out = d;
-  Serial.printf("[homelab] NAS %s cpu %.0f%% mem %.0f%% disk %.0f%% %.0fC, %u/%u containers ok; speed %.0f/%.0f Mbps; "
+  Log::printf("[homelab] NAS %s cpu %.0f%% mem %.0f%% disk %.0f%% %.0fC, %u/%u containers ok; speed %.0f/%.0f Mbps; "
                 "services %u/%u up; sonos %u\n",
                 d.nas.ok ? "ok" : "--", d.nas.cpu, d.nas.mem, d.nas.disk, d.nas.temp, d.nas.healthy, d.nas.containers,
                 d.speed.down, d.speed.up, d.services.up, d.services.total, d.sonosCount);

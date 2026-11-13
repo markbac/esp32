@@ -3,6 +3,7 @@
  * @brief   Worker task, feed scheduling table, radar ring and shared-data locking.
  */
 #include "data_service.h"
+#include "log.h"
 
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
@@ -17,6 +18,7 @@ namespace {
 
 SemaphoreHandle_t mutex = nullptr;            ///< Guards everything below.
 std::atomic<bool> refreshRequested{false};    ///< Set by refreshAll().
+std::atomic<uint32_t> feedRequested{0};       ///< Bit per feed index, set by refresh().
 
 WeatherData weatherShared;
 AirQualityData airShared;
@@ -82,7 +84,7 @@ bool updateRadar() {
   for (uint8_t i = 0; i < n; ++i) {
     if (refs[i].time <= newest) continue;
     if (!Radar::compose(refs[i], radarSpare)) {
-      Serial.printf("[radar] frame %ld failed\n", static_cast<long>(refs[i].time));
+      Log::printf("[radar] frame %ld failed\n", static_cast<long>(refs[i].time));
       continue;
     }
     DataService::lock();
@@ -96,7 +98,7 @@ bool updateRadar() {
   DataService::lock();
   radarShared.eta = eta;
   DataService::unlock();
-  Serial.printf("[radar] %u new frame(s), %u in loop; eta %s here=%d approaching=%d %d min %.0f km/h from %d, cover %.0f%%\n",
+  Log::printf("[radar] %u new frame(s), %u in loop; eta %s here=%d approaching=%d %d min %.0f km/h from %d, cover %.0f%%\n",
                 added, radarShared.count, eta.valid ? "ok" : "n/a", eta.rainingHere, eta.approaching, eta.minutes,
                 eta.speedKmh, eta.fromDeg, eta.coverage * 100);
   return radarShared.count > 0;
@@ -147,14 +149,16 @@ Feed feeds[] = {
 void worker(void *) {
   for (;;) {
     const bool force = refreshRequested.exchange(false);
-    for (Feed &f : feeds) {
+    const uint32_t one = feedRequested.exchange(0);
+    for (size_t i = 0; i < sizeof(feeds) / sizeof(feeds[0]); ++i) {
+      Feed &f = feeds[i];
       const uint32_t period = f.ok ? f.interval : min(f.interval, WEATHER_RETRY_MS);
-      if (force || !f.started || millis() - f.lastRun >= period) {
+      if (force || (one & (1UL << i)) || !f.started || millis() - f.lastRun >= period) {
         f.ok = f.run();
         f.lastRun = millis();
         if (f.ok) f.okAt = f.lastRun;
         f.started = true;
-        if (!f.ok && !f.quiet) Serial.printf("[%s] fetch failed, retry in %lus\n", f.name, WEATHER_RETRY_MS / 1000);
+        if (!f.ok && !f.quiet) Log::printf("[%s] fetch failed, retry in %lus\n", f.name, WEATHER_RETRY_MS / 1000);
       }
     }
     vTaskDelay(pdMS_TO_TICKS(WORKER_IDLE_MS));
@@ -169,12 +173,18 @@ void begin() {
   mutex = xSemaphoreCreateMutex();
   bool ok = (radarSpare = Radar::allocFrame()) != nullptr;
   for (RadarFrame &f : radarShared.frames) ok = ok && (f.pixels = Radar::allocFrame()) != nullptr;
-  if (!ok) Serial.println("[radar] frame buffer allocation failed");
+  if (!ok) Log::println("[radar] frame buffer allocation failed");
   // Core 0 alongside the Wi-Fi stack; the UI loop and web server run on core 1.
   xTaskCreatePinnedToCore(worker, "data", WORKER_STACK, nullptr, 1, nullptr, 0);
 }
 
 void refreshAll() { refreshRequested = true; }
+
+void refresh(const char *feed) {
+  for (size_t i = 0; i < sizeof(feeds) / sizeof(feeds[0]) && i < 32; ++i) {
+    if (strcmp(feeds[i].name, feed) == 0) feedRequested |= 1UL << i;
+  }
+}
 
 void lock() { xSemaphoreTake(mutex, portMAX_DELAY); }
 

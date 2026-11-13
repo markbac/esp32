@@ -3,6 +3,10 @@
  * @brief   HTTP routes, BMP screenshot encoder, JSON/CSV writers.
  */
 #include "web_ui.h"
+#include "log.h"
+#include "air_survey.h"
+#include "net_test.h"
+#include "wifi_scan.h"
 
 #include <ESPmDNS.h>
 #include <WebServer.h>
@@ -12,7 +16,7 @@
 #include "connectivity.h"
 #include "data_service.h"
 #include "history.h"
-#include "web_page.h"
+#include "web_page_gz.h"  // Generated at build time from web_page.h (scripts/gzip_web_page.py).
 #include "web_settings.h"
 #include "web_api.h"
 
@@ -236,14 +240,23 @@ void begin(const Board &b) {
   board = b;
   snapBuf = static_cast<uint16_t *>(heap_caps_malloc(board.width * board.height * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!snapBuf) {
-    Serial.println("[web] no memory for screenshot buffer");
+    Log::println("[web] no memory for screenshot buffer");
     return;
   }
 
   if (MDNS.begin(HOSTNAME)) MDNS.addService("http", "tcp", 80);
 
-  server.on("/", HTTP_GET, [] { server.send(200, "text/html", WEB_PAGE); });
+  server.on("/", HTTP_GET, [] {
+    server.sendHeader("Content-Encoding", "gzip");
+    server.send_P(200, "text/html", reinterpret_cast<const char *>(WEB_PAGE_GZ), WEB_PAGE_GZ_LEN);
+  });
   server.on("/screen.bmp", HTTP_GET, handleScreen);
+  Log::registerRoutes(server);
+#if ENABLE_NET_TOOLS
+  NetTest::registerRoutes(server);  // CrowPanel only (network tools).
+  WifiScan::registerRoutes(server);
+  AirSurvey::registerRoutes(server);
+#endif
   server.on("/api/now.json", HTTP_GET, handleNow);
   server.on("/history.csv", HTTP_GET, handleHistory);
   WebSettings::registerRoutes(server);
@@ -252,7 +265,7 @@ void begin(const Board &b) {
   server.begin();
 
   xTaskCreatePinnedToCore(serverTask, "web", 8192, nullptr, 1, nullptr, 1);
-  Serial.printf("[web] http://%s.local/  (http://%s/)\n", HOSTNAME, Net::ip().c_str());
+  Log::printf("[web] http://%s.local/  (http://%s/)\n", HOSTNAME, Net::ip().c_str());
 }
 
 }  // namespace WebUi

@@ -3,6 +3,7 @@
  * @brief   Open-Meteo HTTPS client and JSON parsing.
  */
 #include "weather.h"
+#include "log.h"
 
 #include <ArduinoJson.h>
 
@@ -60,7 +61,7 @@ bool fetch(WeatherData &out) {
   JsonDocument doc;
   const bool ok = Https::get(buildUrl(), "weather", [&](HTTPClient &http) {
     const DeserializationError err = deserializeJson(doc, http.getStream());
-    if (err) Serial.printf("[weather] JSON error: %s\n", err.c_str());
+    if (err) Log::printf("[weather] JSON error: %s\n", err.c_str());
     return !err;
   });
   if (!ok) return false;
@@ -131,7 +132,7 @@ bool fetch(WeatherData &out) {
   wx.fetchedAtMs = millis();
   out = wx;
 
-  Serial.printf("[weather] %.1fC feels %.1fC, %s, hum %d%%, wind %.0fmph %s (gust %.0f); "
+  Log::printf("[weather] %.1fC feels %.1fC, %s, hum %d%%, wind %.0fmph %s (gust %.0f); "
                 "%u hourly, %u daily, %u nowcast; sun %s-%s\n",
                 wx.current.temp, wx.current.feelsLike, describe(wx.current.code), wx.current.humidity,
                 wx.current.wind, compass(wx.current.windDir), wx.current.gust, wx.hourlyCount,

@@ -8,6 +8,7 @@
  *          (c) OpenStreetMap contributors, RainViewer.
  */
 #include "radar.h"
+#include "log.h"
 
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
@@ -62,7 +63,7 @@ bool composeTiles(uint16_t *dst, const TileUrl &url, PngTile::Mode mode, const c
       const int offX = static_cast<int>(tx * Geo::TILE_SIZE - ox);
       const int offY = static_cast<int>(ty * Geo::TILE_SIZE - oy);
       if (!PngTile::blit(data, len, dst, RadarLoop::W, RadarLoop::H, offX, offY, mode)) {
-        Serial.printf("[%s] PNG decode failed for tile %ld/%ld\n", tag, tx, ty);
+        Log::printf("[%s] PNG decode failed for tile %ld/%ld\n", tag, tx, ty);
         return false;
       }
     }
@@ -82,7 +83,7 @@ bool ensureBasemap() {
         return "https://tile.openstreetmap.org/" + String(RADAR_ZOOM) + "/" + x + "/" + y + ".png";
       },
       PngTile::Mode::DarkMap, "basemap");
-  if (basemapReady) Serial.println("[radar] base map cached");
+  if (basemapReady) Log::println("[radar] base map cached");
   return basemapReady;
 }
 
@@ -177,6 +178,10 @@ float bestShift(const uint8_t *a, const uint8_t *b, int &bdx, int &bdy) {
         bdy = dy;
       }
     }
+    // Long, CPU-bound search on core 0: yield each row so the idle task (and the
+    // task watchdog) are never starved - this reset the board once the Wi-Fi
+    // tools added load on the same core.
+    vTaskDelay(1);
   }
   return aCount ? static_cast<float>(best) / aCount : 0;
 }
@@ -196,7 +201,10 @@ RadarEta estimate(const RadarLoop &loop) {
   // Masks for the newest (up to) 4 frames, oldest first.
   const int n = min<int>(4, loop.count);
   int counts[4] = {};
-  for (int i = 0; i < n; ++i) rainMask(loop.frames[loop.count - n + i].pixels, masks + i * GW * GH, counts[i]);
+  for (int i = 0; i < n; ++i) {
+    rainMask(loop.frames[loop.count - n + i].pixels, masks + i * GW * GH, counts[i]);
+    vTaskDelay(1);
+  }
   const uint8_t *newest = masks + (n - 1) * GW * GH;
   eta.coverage = static_cast<float>(counts[n - 1]) / (GW * GH);
 

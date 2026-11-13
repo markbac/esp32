@@ -3,6 +3,7 @@
  * @brief   Open-Meteo Air Quality API client.
  */
 #include "air_quality.h"
+#include "log.h"
 
 #include <ArduinoJson.h>
 
@@ -25,7 +26,7 @@ bool fetch(AirQualityData &out) {
   JsonDocument doc;
   const bool ok = Https::get(URL, "air", [&](HTTPClient &http) {
     const DeserializationError err = deserializeJson(doc, http.getStream());
-    if (err) Serial.printf("[air] JSON error: %s\n", err.c_str());
+    if (err) Log::printf("[air] JSON error: %s\n", err.c_str());
     return !err;
   });
   if (!ok) return false;
@@ -49,7 +50,7 @@ bool fetch(AirQualityData &out) {
 
   const char *ptype = nullptr;
   const char *plevel = pollen(aq, ptype);
-  Serial.printf("[air] EAQI %d (%s), PM2.5 %.1f, PM10 %.1f, NO2 %.1f, O3 %.1f, UV %.1f, pollen %s%s%s\n", aq.eaqi,
+  Log::printf("[air] EAQI %d (%s), PM2.5 %.1f, PM10 %.1f, NO2 %.1f, O3 %.1f, UV %.1f, pollen %s%s%s\n", aq.eaqi,
                 band(aq.eaqi), aq.pm25, aq.pm10, aq.no2, aq.o3, aq.uv, plevel, ptype ? " " : "", ptype ? ptype : "");
   return true;
 }

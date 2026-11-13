@@ -3,6 +3,7 @@
  * @brief   Carbon Intensity API client.
  */
 #include "carbon.h"
+#include "log.h"
 
 #include <ArduinoJson.h>
 #include <time.h>
@@ -125,7 +126,7 @@ bool fetch(CarbonData &out) {
   c.valid = true;
   c.fetchedAtMs = millis();
   out = c;
-  Serial.printf("[carbon] %u g/kWh (%s), wind %.0f%% nuclear %.0f%% gas %.0f%%, %u forecast slots\n", c.nowGPerKwh,
+  Log::printf("[carbon] %u g/kWh (%s), wind %.0f%% nuclear %.0f%% gas %.0f%%, %u forecast slots\n", c.nowGPerKwh,
                 indexName(c.nowIndex), c.mix[0], c.mix[2], c.mix[6], c.count);
   return true;
 }

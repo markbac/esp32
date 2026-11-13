@@ -6,6 +6,7 @@
  *          into a String and scanned with indexOf() rather than a full XML parser.
  */
 #include "aurora.h"
+#include "log.h"
 
 #include "https_get.h"
 
@@ -73,7 +74,7 @@ bool fetch(AuroraData &out) {
   a.fetchedAtMs = millis();
   if (!a.valid) return false;
   out = a;
-  Serial.printf("[aurora] %s, latest %.1f nT, %u hourly samples\n", levelName(a.level), latestActivity(a), a.count);
+  Log::printf("[aurora] %s, latest %.1f nT, %u hourly samples\n", levelName(a.level), latestActivity(a), a.count);
   return true;
 }
 

@@ -18,6 +18,14 @@ namespace Net {
  */
 bool begin(const char *ssid, const char *password, uint32_t timeoutMs);
 
+/**
+ * @brief Re-join if the link has been down for a while (call about once a second).
+ * @details Auto-reconnect does not always recover from a failed first
+ *          association or a long outage, so after 20 s offline this restarts
+ *          the connection with the credentials given to begin().
+ */
+void maintain();
+
 /** @brief True while associated with the access point and holding an IP. */
 bool connected();
 

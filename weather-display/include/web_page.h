@@ -11,6 +11,10 @@
  *          Tabs: Now, Forecast, Radar, Flights, Air & Grid, Sky & Alerts,
  *          Home, Lab, History, Mirror (live screenshots of the display),
  *          System. The URL hash selects the tab (e.g. /#flights).
+ *
+ *          This file is the editable source only: scripts/gzip_web_page.py
+ *          gzips the HTML at build time into web_page_gz.h, which is what the
+ *          firmware stores and serves (Content-Encoding: gzip).
  */
 #pragma once
 
@@ -78,7 +82,7 @@ static const char WEB_PAGE[] = R"HTML(<!doctype html>
   <h1 id="title">Weather Station</h1>
   <span class="clock" id="clock"></span>
   <span class="chips" id="pills"></span>
-  <a class="cfg" href="/settings">&#9881; Settings</a>
+  <a class="cfg" href="/logs">&#128196; Logs</a> <a class="cfg" href="/settings">&#9881; Settings</a>
 </header>
 <nav id="nav"></nav>
 <main>

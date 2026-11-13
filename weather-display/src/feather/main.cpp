@@ -22,6 +22,7 @@
 #include "battery.h"
 #include "config.h"
 #include "connectivity.h"
+#include "log.h"
 #include "data_service.h"
 #include "history.h"
 #include "recorder.h"
@@ -189,6 +190,7 @@ void setup() {
   Wire.begin();
   Battery::begin(Wire);
   Battery::update();
+  Log::bootReport();
   Settings::begin();
   History::begin();
 
@@ -215,7 +217,10 @@ void loop() {
   pollButtons();
 
   if (PAGE_ROTATE_MS && due(lastPageChange, PAGE_ROTATE_MS)) page = nextAuto(page);
-  if (due(lastBatteryRead, BATTERY_INTERVAL_MS)) Battery::update();
+  if (due(lastBatteryRead, BATTERY_INTERVAL_MS)) {
+    Battery::update();
+    Net::maintain();
+  }
   if (due(lastLed, 50)) updateLed();
   if (due(lastSerialLog, SERIAL_LOG_INTERVAL_MS)) {
     logStatus();

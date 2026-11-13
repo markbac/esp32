@@ -6,7 +6,8 @@
  *          and pushed to the panel's frame buffer in one copy. A status bar
  *          (clock, date, page title, station/aurora/warning/Wi-Fi icons) sits
  *          at the top and a tab bar at the bottom; pages fill the 800x380 area
- *          between. Navigation: tap a tab, or swipe left/right anywhere.
+ *          between. Navigation: tap a tab, or swipe left/right anywhere;
+ *          drag up/down scrolls list pages (Flights list, Wi-Fi).
  *
  *          Drawing reads the DataService store, so compose happens under the
  *          data lock; a separate canvas lock serialises the display loop and
@@ -16,21 +17,39 @@
 
 #include <stdint.h>
 
-/** @brief The pages, in tab order. */
+/**
+ * @brief The pages, grouped in tab order (see Ui::groupOf()).
+ *
+ * | Bottom tab | Sub-tabs (top bar)                      |
+ * |------------|-----------------------------------------|
+ * | Weather    | Now, Forecast, Radar, Alerts            |
+ * | Air        | Air quality, Grid, Sky                  |
+ * | Flights    | -                                       |
+ * | History    | -                                       |
+ * | Home       | Home Assistant, Lab                     |
+ * | Network    | Signal, Crowding, Test, Monitor, Help   |
+ * | System     | Status, Settings                        |
+ */
 enum class Page : uint8_t {
-  Now,       ///< Tempest live conditions, wind compass, outlook.
-  Forecast,  ///< 24-hour graph and 7-day forecast.
-  Radar,     ///< Animated radar map + 2-hour rain nowcast.
-  Air,       ///< Air quality, pollutants, UV, pollen.
-  Grid,      ///< Electricity carbon intensity, generation mix, 48 h forecast.
-  Sky,       ///< Sun arc, day length, moon phase.
-  Alerts,    ///< Met Office warnings, frost/ice risk, AuroraWatch, lightning.
-  Flights,   ///< Tap-to-select aircraft scope with trails + photo and details.
-  History,   ///< Today/yesterday/records summary and charts from the 90-day log.
-  Home,      ///< Home Assistant: temperatures, people, heating, power, lights, open doors.
-  Lab,       ///< Home lab: NAS health, internet speed, services, Sonos.
-  System,    ///< Network, Tempest hub/sensor, device and feed status.
-  Count      ///< Number of pages (not a page).
+  Now,         ///< Tempest live conditions, wind compass, outlook.
+  Forecast,    ///< 24-hour graph and 7-day forecast.
+  Radar,       ///< Animated radar map + 2-hour rain nowcast.
+  Alerts,      ///< Met Office warnings, frost/ice risk, AuroraWatch, lightning.
+  Air,         ///< Air quality, pollutants, UV, pollen.
+  Grid,        ///< Electricity carbon intensity, generation mix, 48 h forecast.
+  Sky,         ///< Sun arc, day length, moon phase.
+  Flights,     ///< Aircraft scope (or list) with trails, photo and details; radius control.
+  History,     ///< Today/yesterday/records summary and charts from the 90-day log.
+  Home,        ///< Home Assistant: temperatures, people, heating, power, lights, open doors.
+  Lab,         ///< Home lab: NAS health, internet speed, services, Sonos.
+  Wifi,        ///< Network > Signal: live signal meter, networks in range, signal history.
+  NetCrowd,    ///< Network > Crowding: channel map and 20 s air survey (devices, air time, re-sends).
+  NetTest,     ///< Network > Test: 30-second latency / jitter / loss / DNS / speed test.
+  NetMonitor,  ///< Network > Monitor: 15 min to 8 h glitch watch: ping, signal, air and events views.
+  NetHelp,     ///< Network > Help: what each test measures and how to read it.
+  System,      ///< Network, Tempest hub/sensor, device, SD card and feed status.
+  Settings,    ///< Touch settings: auto page (and its pages), sleep, backlight.
+  Count        ///< Number of pages (not a page).
 };
 
 namespace Ui {
@@ -57,6 +76,12 @@ Page current();
 /** @brief Switch page. */
 void show(Page p);
 
+/** @brief Advance to the next page chosen for auto paging (Settings::autoPageMask). */
+void advance();
+
+/** @brief True if @p p may be included in auto paging (not Settings or the network tests). */
+bool rotatable(Page p);
+
 /** @brief Tab label for a page. */
 const char *pageName(Page p);
 
@@ -66,7 +91,8 @@ struct Stats {
   uint32_t pushMs = 0;      ///< Time to copy it to the panel.
   int lastTapX = -1;        ///< Last tap position (-1 = none yet).
   int lastTapY = -1;
-  uint32_t lastTapAtMs = 0; ///< millis() of the last tap.
+  uint32_t lastTapAtMs = 0; ///< millis() of the last tap (or drag), used to trigger a redraw.
+  uint32_t lastTouchMs = 0; ///< millis() of the last touch of any kind (tap, swipe, drag).
 };
 
 /** @brief Latest render timings and touch position. */

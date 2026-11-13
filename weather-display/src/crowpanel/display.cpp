@@ -3,6 +3,7 @@
  * @brief   LovyanGFX configuration for the CrowPanel 7" and touch bring-up.
  */
 #include "display.h"
+#include "log.h"
 
 #include <Wire.h>
 
@@ -132,11 +133,11 @@ void detectTouch() {
   if (probe(GT911_ADDR_A)) gtAddr = GT911_ADDR_A;
   else if (probe(GT911_ADDR_B)) gtAddr = GT911_ADDR_B;
 
-  Serial.printf("[display] I2C:");
+  Log::printf("[display] I2C:");
   for (uint8_t a = 1; a < 127; ++a) {
-    if (probe(a)) Serial.printf(" 0x%02X", a);
+    if (probe(a)) Log::printf(" 0x%02X", a);
   }
-  Serial.printf("  -> PCA9557 %s, GT911 %s (0x%02X)\n", expander ? "yes" : "no", gtAddr ? "found" : "NOT found", gtAddr);
+  Log::printf("  -> PCA9557 %s, GT911 %s (0x%02X)\n", expander ? "yes" : "no", gtAddr ? "found" : "NOT found", gtAddr);
   Wire.end();  // LovyanGFX drives the touch bus itself from here on.
 }
 
@@ -148,13 +149,13 @@ bool begin() {
   detectTouch();
   device = new LGFX_CrowPanel(gtAddr);
   if (!device->init()) {
-    Serial.println("[display] panel init FAILED");
+    Log::println("[display] panel init FAILED");
     return false;
   }
   device->setRotation(0);
   device->setBrightness(CP_BACKLIGHT);
   device->fillScreen(TFT_BLACK);
-  Serial.printf("[display] %ldx%ld ready, pclk %lu Hz\n", static_cast<long>(device->width()),
+  Log::printf("[display] %ldx%ld ready, pclk %lu Hz\n", static_cast<long>(device->width()),
                 static_cast<long>(device->height()), static_cast<unsigned long>(CP_PCLK_HZ));
   return true;
 }
