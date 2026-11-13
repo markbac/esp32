@@ -59,6 +59,18 @@ struct WifiScanData {
 /** @brief Most "own system" prefixes tracked (one per mesh node model / vendor block). */
 constexpr uint8_t WIFI_MAX_FAMILY = 8;
 
+/**
+ * @brief Physical radio (mesh unit) key for an access point address.
+ * @details Mesh systems give each SSID on a radio its own address by varying
+ *          byte 0 (locally administered variants) and/or the high nibble of
+ *          byte 3 (seen on ASUS ZenWiFi); bytes 1-2, the low nibble of byte 3
+ *          and bytes 4-5 stay the same for one radio.
+ */
+inline uint64_t radioKey(const uint8_t *mac) {
+  return (static_cast<uint64_t>(mac[1]) << 32) | (static_cast<uint64_t>(mac[2]) << 24) |
+         (static_cast<uint64_t>(mac[3] & 0x0F) << 16) | (static_cast<uint64_t>(mac[4]) << 8) | mac[5];
+}
+
 /** @brief True if @p mac belongs to one of @p n family prefixes. */
 inline bool inFamily(const uint8_t *mac, const uint8_t (*fam)[2], uint8_t n) {
   for (uint8_t i = 0; i < n; ++i) {

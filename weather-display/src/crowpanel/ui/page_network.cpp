@@ -396,21 +396,27 @@ void channelCard() {
     return;
   }
   if (myCh) {
-    int ownAps = 0, ownOnCh = 0, overlap = 0, strong = 0;
+    int ownAps = 0, ownOnCh = 0, overlap = 0, strong = 0, units = 0;
+    uint64_t seen[WIFI_MAX_NETS];
     for (uint8_t i = 0; i < d.count; ++i) {
       const WifiNet &n = d.nets[i];
       if (n.rssi == WIFI_NOT_SEEN) continue;
       if (inFamily(n.bssid, family, familyN)) {
         ++ownAps;
         if (n.channel == myCh) ++ownOnCh;
+        const uint64_t k = radioKey(n.bssid);
+        bool dup = false;
+        for (int u = 0; u < units && !dup; ++u) dup = seen[u] == k;
+        if (!dup) seen[units++] = k;
       } else if (abs(n.channel - myCh) <= 4) {
         ++overlap;
         if (n.rssi >= -70) ++strong;
       }
     }
-    textf(LX + 14, y, F::XS, C::TEXT, td::top_left, "You: channel %d, %d of your APs on it", myCh, ownOnCh);
-    textf(LX + 14, y + 18, F::XS, ownAps >= 8 ? C::ORANGE : C::DIM, td::top_left,
-          "(%d SSIDs x mesh nodes in all)", ownAps);
+    textf(LX + 14, y, F::XS, C::TEXT, td::top_left, "You: channel %d, %d mesh unit%s heard", myCh, units,
+          units == 1 ? "" : "s");
+    textf(LX + 14, y + 18, F::XS, ownAps >= 12 ? C::ORANGE : C::DIM, td::top_left,
+          "%d network broadcasts (SSIDs x units), %d on ch %d", ownAps, ownOnCh, myCh);
     textf(LX + 14, y + 36, F::XS, strong >= 3 ? C::ORANGE : C::TEXT, td::top_left, "Neighbours overlapping: %d (%d strong)",
           overlap, strong);
     int best = 1;
@@ -469,7 +475,7 @@ void airCard() {
   big(RX + 300, "re-sent", v, a.retryPct() >= 25 ? C::RED : a.retryPct() >= 12 ? C::ORANGE : C::GREEN);
   y += 50;
   textf(RX + 14, y, F::XS, a.ourBeaconPct() >= 15 ? C::ORANGE : C::MUTED, td::top_left,
-        "Beacons: %.0f%% of the air (%.0f%% from your %u APs)", a.beaconPct(), a.ourBeaconPct(), a.ourAccessPoints);
+        "Beacons use %.0f%% of the air (%.0f%% are yours)", a.beaconPct(), a.ourBeaconPct());
   y += 22;
   text("Busiest devices on your Wi-Fi (share of data)", RX + 14, y, F::XS, C::MUTED);
   y += 20;
