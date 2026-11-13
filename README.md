@@ -10,7 +10,7 @@ Firmware for ESP32 boards around the house. Each project lives in its own folder
 
 A weather station that reads a **WeatherFlow Tempest** over the local network and combines it with free online data. The two boards share one core:
 
-- **CrowPanel 7"** (800 x 480 touch): 17 touch pages in 7 groups: live conditions, forecast, animated rain radar, alerts, air quality, electricity grid carbon, sun and moon, flights overhead (scope or list, with photos and routes), 90 days of history, Home Assistant, home lab, Wi-Fi and network diagnostics, system status and settings. Auto paging through chosen pages, an overnight sleep mode, and logs on an SD card.
+- **CrowPanel 7"** (800 x 480 touch): 18 touch pages in 7 groups: live conditions, forecast, animated rain radar, alerts, air quality, electricity grid carbon, sun and moon, flights overhead (scope or list, with photos and routes), 90 days of history, Home Assistant, home lab, Wi-Fi and network diagnostics, system status and settings. Auto paging through chosen pages, an overnight sleep mode, and logs on an SD card.
 - **Feather ESP32-S3 Reverse TFT** (240 x 135): nine auto-rotating pages driven by three buttons, with a battery gauge and status LED.
 
 Both serve a local web dashboard (`http://weather7.local` or `http://weather.local`) with interactive maps, charts, history downloads, settings and logs.

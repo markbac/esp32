@@ -2,7 +2,7 @@
 
 Home weather station firmware for two displays that share one core:
 
-- **Elecrow CrowPanel 7" Basic** (800 × 480 touch): seventeen touch pages in seven groups, with sub-tabs, swipe navigation, auto paging and a sleep mode.
+- **Elecrow CrowPanel 7" Basic** (800 × 480 touch): eighteen touch pages in seven groups, with sub-tabs, swipe navigation, auto paging and a sleep mode.
 - **Adafruit Feather ESP32-S3 Reverse TFT** (240 × 135): nine auto-rotating pages, driven by three buttons.
 
 **Data shown:**
