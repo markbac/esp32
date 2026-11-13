@@ -22,6 +22,7 @@
 #include "battery.h"
 #include "config.h"
 #include "connectivity.h"
+#include "log.h"
 #include "data_service.h"
 #include "history.h"
 #include "recorder.h"
@@ -189,6 +190,7 @@ void setup() {
   Wire.begin();
   Battery::begin(Wire);
   Battery::update();
+  Log::bootReport();
   Settings::begin();
   History::begin();
 

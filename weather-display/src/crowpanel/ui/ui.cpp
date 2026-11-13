@@ -28,11 +28,11 @@ struct CanvasLock {
 /** @brief Sub-tab label (top bar) for each page. */
 const char *const PAGE_NAMES[] = {"Now",    "Forecast", "Radar",  "Alerts", "Air quality", "Grid",
                                   "Sky",    "Flights",  "History", "Home",  "Lab",         "Signal",
-                                  "Test",   "Monitor",  "Help",   "Status", "Settings"};
+                                  "Crowding", "Test",   "Monitor",  "Help",   "Status", "Settings"};
 /** @brief Title shown when a group has a single page. */
 const char *const TITLES[] = {"Conditions now", "Forecast", "Rain radar", "Alerts", "Air quality", "Electricity grid",
                               "Sun & moon", "Flights overhead", "History & records", "Home Assistant", "Home lab",
-                              "Wi-Fi signal", "Network test", "Network monitor", "Network help", "System", "Settings"};
+                              "Wi-Fi signal", "Wi-Fi crowding", "Network test", "Network monitor", "Network help", "System", "Settings"};
 constexpr int PAGES = static_cast<int>(Page::Count);
 static_assert(sizeof(PAGE_NAMES) / sizeof(PAGE_NAMES[0]) == PAGES, "one name per page");
 static_assert(sizeof(TITLES) / sizeof(TITLES[0]) == PAGES, "one title per page");
@@ -45,7 +45,7 @@ struct Group {
 };
 const Group GROUPS[] = {
     {"Weather", Page::Now, 4},  {"Air", Page::Air, 3},     {"Flights", Page::Flights, 1}, {"History", Page::History, 1},
-    {"Home", Page::Home, 2},    {"Network", Page::Wifi, 4}, {"System", Page::System, 2},
+    {"Home", Page::Home, 2},    {"Network", Page::Wifi, 5}, {"System", Page::System, 2},
 };
 constexpr int GROUPS_N = sizeof(GROUPS) / sizeof(GROUPS[0]);
 Page lastInGroup[GROUPS_N];  ///< Page to reopen when a bottom tab is tapped (initialised in begin()).
@@ -59,7 +59,7 @@ int groupIndex(Page p) {
 }
 
 /** @brief Sub-tab strip geometry for the current group. */
-constexpr int SEG_W = 96, SEG_H = 32, SEG_Y = (TOP_H - SEG_H) / 2;
+constexpr int SEG_W = 80, SEG_H = 32, SEG_Y = (TOP_H - SEG_H) / 2;
 int segX0(const Group &g) { return W / 2 - g.count * SEG_W / 2; }
 
 bool alertActive() {
@@ -77,7 +77,7 @@ void statusBar() {
     snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
     const int w = text(buf, 12, TOP_H / 2, F::M, C::TEXT, td::middle_left);
     strftime(buf, sizeof(buf), "%a %d %b", &t);
-    text(buf, 12 + w + 12, TOP_H / 2 + 1, F::S, C::MUTED, td::middle_left);
+    if (GROUPS[groupIndex(state.page)].count < 5) text(buf, 12 + w + 12, TOP_H / 2 + 1, F::S, C::MUTED, td::middle_left);
   }
   const Group &g = GROUPS[groupIndex(state.page)];
   int centreRight = W / 2;  // Right edge of the centre element, so status chips don't overlap it.
@@ -174,6 +174,7 @@ void compose(Page page) {
     case Page::Home: pageHome(); break;
     case Page::Lab: pageLab(); break;
     case Page::Wifi: pageWifi(); break;
+    case Page::NetCrowd: pageNetCrowd(); break;
     case Page::NetTest: pageNetTest(); break;
     case Page::NetMonitor: pageNetMonitor(); break;
     case Page::NetHelp: pageNetHelp(); break;
@@ -214,6 +215,7 @@ void tap(int x, int y) {
     case Page::Flights: tapFlights(x, y); break;
     case Page::History: tapHistory(x, y); break;
     case Page::Wifi: tapWifi(x, y); break;
+    case Page::NetCrowd: tapNetCrowd(x, y); break;
     case Page::NetTest: tapNetTest(x, y); break;
     case Page::NetMonitor: tapNetMonitor(x, y); break;
     case Page::Settings: tapSettings(x, y); break;
@@ -226,6 +228,7 @@ void drag(int dy) {
   switch (state.page) {
     case Page::Flights: dragFlights(dy); break;
     case Page::Wifi: dragWifi(dy); break;
+    case Page::NetMonitor: dragNetMonitor(dy); break;
     default: break;
   }
 }
@@ -334,7 +337,8 @@ void show(Page p) {
 }
 
 bool rotatable(Page p) {
-  return p != Page::Settings && p != Page::NetTest && p != Page::NetMonitor && p != Page::NetHelp && p < Page::Count;
+  return p != Page::Settings && p != Page::NetCrowd && p != Page::NetTest && p != Page::NetMonitor && p != Page::NetHelp &&
+         p < Page::Count;
 }
 
 void advance() {

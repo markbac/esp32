@@ -169,8 +169,10 @@ Each environment compiles `src/core` plus its own board folder (`build_src_filte
 | Arduino `loop()` | 1 | Touch/buttons, render, backlight, history |
 | `web` | 1 | HTTP server |
 | `nettest` | 0 | One-shot network test (pings, DNS, HTTPS download); yields every 4 KB so the idle task is never starved |
-| `monitor` | 0 | Monitor run: two continuous `esp_ping` sessions plus a 1 s sampler; exits when the run ends |
+| `monitor` | 0 | Monitor run: two continuous `esp_ping` sessions, the air survey and a 1 s sampler (signal, mesh moves, drop-outs, DNS each minute); exits when the run ends |
+| Wi-Fi driver callback | 0 | Air survey (promiscuous mode): per-frame counters and small MAC sets under a spinlock; nothing else |
 
+- **CPU-bound work yields.** The radar rain-motion search (`Radar::estimate`) and the speed-test download both call `vTaskDelay(1)` regularly. Without it, the extra Wi-Fi load on core 0 starved the idle task and the task watchdog reset the board about a minute after boot (found from the core dump, see Logging).
 - **Wi-Fi survey** runs from the UI loop as an asynchronous scan every minute. Scans are held off while a test or monitor runs, because a scan takes the radio off-channel for about 2 s and would show up as 500 ms lag spikes.
 - **Logging:** `Log::printf` may be called from any task; lines go to serial, a RAM tail and an SD buffer under a small mutex. Only the UI loop writes the buffer to the card (every 5 s).
 
@@ -257,8 +259,9 @@ If no observation has arrived for 5 minutes, the UI falls back to Open-Meteo val
 | Flights | North-up scope with labelled aircraft (colour = altitude) and **trails**; details card with **photo**, route, cities, airline. **List** view: every aircraft kept (up to 48), nearest first, with type, registration, altitude, speed, climb, distance, bearing and route | **Tap a plane** to select it; tap empty sky for nearest. **List** / **Scope** toggles the view; drag or arrows scroll the list; tap a row to show it on the scope. **Radius - / +** (5 to 100 nm) re-polls at once and is saved |
 | History | **Summary** (today, yesterday, records over 7/30/90 days) or charts over 24 h / 7 d / 30 d / 90 d | Mode buttons |
 | Network: Signal | Live signal of the joined access point with a -90 to -40 dBm scale; every network in range (scan each minute); 3-hour signal history of the strongest six | Tap a network to highlight it on the graph; drag or arrows scroll |
+| Network: Crowding | 2.4 GHz channel map (networks per channel coloured by signal; your system vs neighbours; quietest of 1/6/11) and a 20 s air survey: devices on your Wi-Fi, neighbours, air busy, re-sent frames, beacon overhead, busiest devices | Listen 20 s |
 | Network: Test | What the test does, then results: router and internet ping (avg, max, jitter, loss), DNS, download speed, verdict and a plain-English diagnosis | Run test |
-| Network: Monitor | 15 min to 2 h glitch watch: per-minute timeline of router/internet ping, spikes, lost pings and drop-outs, plus totals and a verdict | Duration chips, Start / Stop |
+| Network: Monitor | 15 min to 8 h glitch watch. Views: Ping (router/internet average, worst, lost), Signal (average/weakest, mesh moves, drop-outs), Air (devices, air busy %, re-sent %) and Events (drop-outs with reason, back after N s, mesh moves, spikes >500 ms, loss bursts, DNS failures, weak signal, busy channel); totals and a verdict | Duration chips, Start / Stop, view chips; drag to scroll events |
 | Network: Help | What each figure means and how to track down a problem | - |
 | System: Status | Network, Tempest hub/sensor, display health, SD card, feed ages | - |
 | System: Settings | Auto page on/off, seconds per page, **which pages it rotates through**; sleep mode on/off with sleep and wake times; day/night backlight | Toggles and steppers; saved to flash 3 s after the last tap |
@@ -365,13 +368,20 @@ Hostnames: `weather.local` (Feather), `weather7.local` (CrowPanel). Each board p
 |---|---|
 | `wifi_scan` | Async scan every 60 s, merged by BSSID into a 3-hour RSSI ring (32 networks x 180 samples, PSRAM) |
 | `net_test` | Quick test (20 pings to the gateway, 20 to 1.1.1.1, DNS lookup, 8 s HTTPS download from speed.cloudflare.com) and the monitor (1 Hz pings to both, per-minute log of up to 120 minutes). Verdicts: Good / OK / Poor / Bad for the test; Healthy / Internet issues / Wi-Fi unstable / Wi-Fi problem for the monitor |
-| `log` | Serial + 16 KB RAM tail + SD card (`/logs/app-YYYY-MM-DD.log`, `/logs/net-YYYY-MM-DD.csv`), 60 days kept. Web: `/logs`, `/logs/file?name=`, `/logs/tail`, `/api/logs`; tests can be started with `POST /api/nettest` (`action=test`, `action=monitor&minutes=30`, `action=stop`) |
+| `air_survey` | Promiscuous listening on the joined channel (2.4 GHz). "Yours" = every access point sharing address bytes 1-2 with one broadcasting your SSID (`WifiScan::ownFamily`), so all mesh nodes and their guest/IoT/backhaul SSIDs count. Air time per frame = preamble + size / rate (legacy and HT rates); busy % is a lower bound because undecodable frames are missed |
+| `log` | Serial + 16 KB RAM tail + SD card (`/logs/app-YYYY-MM-DD.log`, `/logs/net-YYYY-MM-DD.csv`), 60 days kept. Web: `/logs`, `/logs/file?name=`, `/logs/tail`, `/api/logs`; tests can be started with `POST /api/nettest` (`action=test`, `action=air`, `action=monitor&minutes=60`, `action=stop`); `GET /api/wifi.json` lists every network with its signal history. At boot, `Log::bootReport()` logs the reset reason and, after a crash, the task and backtrace from the flash core dump |
 
 The download figure is what the ESP32 itself manages (single-antenna 2.4 GHz with TLS, typically 1 to 10 Mbps). It is for comparing rooms, not for checking the broadband speed; latency, jitter and loss are the useful measures of lag.
 
 The SD card slot is on SPI: CS 10, MOSI 11, CLK 12, MISO 13. Cards must be FAT32 (cards over 32 GB usually come as exFAT and need reformatting). Mounting tries 20 MHz, then 4 MHz.
 
 **Wi-Fi watchdog.** `Net::maintain()` re-joins after 20 s offline. Auto-reconnect alone did not recover from a failed first association during testing.
+
+### Flash layout
+
+Both boards use the same 4 MB layout: NVS, one 3 MB app slot (no OTA; the firmware has no OTA code), ~900 KB LittleFS for history and a 64 KB core-dump area. The Feather previously used `min_spiffs.csv`, which reserved a second 1.9 MB slot for OTA that was never used; with the new layout it went from 97% to 60% of its slot.
+
+The web dashboard (`include/web_page.h`, ~48 KB of HTML) is gzipped at build time by `scripts/gzip_web_page.py` into a generated header (~16 KB) and served with `Content-Encoding: gzip`.
 
 ## 9. Memory (CrowPanel)
 

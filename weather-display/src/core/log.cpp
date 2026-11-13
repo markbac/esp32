@@ -7,7 +7,9 @@
 #include <WebServer.h>
 
 #include <algorithm>
+#include <esp_core_dump.h>
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <stdarg.h>
@@ -247,14 +249,15 @@ void sendList() {
 #if ENABLE_NET_TOOLS
   h += F("<h2 style='font-size:16px'>Wi-Fi test</h2><p>"
          "<button onclick=\"nt('action=test')\">Quick test</button> "
-         "<button onclick=\"nt('action=monitor&minutes=30')\">Monitor 30 min</button> "
-         "<button onclick=\"nt('action=monitor&minutes=60')\">Monitor 60 min</button> "
+         "<button onclick=\"nt('action=air')\">Air survey 20 s</button> "
+         "<button onclick=\"nt('action=monitor&minutes=60')\">Monitor 1 h</button> "
+         "<button onclick=\"nt('action=monitor&minutes=240')\">Monitor 4 h</button> "
          "<button onclick=\"nt('action=stop')\">Stop</button> <span id=ns class=muted></span></p>"
          "<pre id=nr style='height:auto;min-height:3em'></pre><script>"
          "async function nt(b){const r=await fetch('/api/nettest',{method:'POST',headers:{'Content-Type':"
          "'application/x-www-form-urlencoded'},body:b});document.getElementById('ns').textContent=r.ok?'started':'busy or offline'}"
          "async function nr(){const j=await (await fetch('/api/now.json')).json();"
-         "document.getElementById('nr').textContent=JSON.stringify({test:j.netTest,monitor:j.monitor},null,1)||''}"
+         "document.getElementById('nr').textContent=JSON.stringify({test:j.netTest,air:j.airSurvey,monitor:j.monitor},null,1)||''}"
          "nr();setInterval(nr,5000)</script>");
 #endif
   h += F("<h2 style='font-size:16px'>Live log <span class=muted>(last 16 KB, refreshes every 5 s)</span></h2>"
@@ -335,6 +338,40 @@ bool begin() {
 #else
   return false;
 #endif
+}
+
+void bootReport() {
+  const char *why = "unknown";
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: why = "power on"; break;
+    case ESP_RST_EXT: why = "reset pin"; break;
+    case ESP_RST_SW: why = "software restart"; break;
+    case ESP_RST_PANIC: why = "CRASH (exception / panic)"; break;
+    case ESP_RST_INT_WDT: why = "CRASH (interrupt watchdog)"; break;
+    case ESP_RST_TASK_WDT: why = "CRASH (task watchdog)"; break;
+    case ESP_RST_WDT: why = "CRASH (other watchdog)"; break;
+    case ESP_RST_DEEPSLEEP: why = "wake from deep sleep"; break;
+    case ESP_RST_BROWNOUT: why = "BROWNOUT (power supply dipped)"; break;
+    case ESP_RST_SDIO: why = "SDIO"; break;
+    default: break;
+  }
+  Log::printf("[boot] reset reason: %s\n", why);
+  if (esp_core_dump_image_check() != ESP_OK) return;  // No (valid) crash dump stored.
+  auto *sum = static_cast<esp_core_dump_summary_t *>(malloc(sizeof(esp_core_dump_summary_t)));
+  if (sum && esp_core_dump_get_summary(sum) == ESP_OK) {
+    char bt[16 * 11 + 1] = "";
+    for (uint32_t i = 0; i < sum->exc_bt_info.depth && i < 16; ++i) {
+      char a[12];
+      snprintf(a, sizeof(a), " 0x%08lx", static_cast<unsigned long>(sum->exc_bt_info.bt[i]));
+      strlcat(bt, a, sizeof(bt));
+    }
+    Log::printf("[boot] last crash in task '%s' at pc 0x%08lx, cause %lu%s\n", sum->exc_task,
+                static_cast<unsigned long>(sum->exc_pc), static_cast<unsigned long>(sum->ex_info.exc_cause),
+                sum->exc_bt_info.corrupted ? " (backtrace corrupted)" : "");
+    Log::printf("[boot] backtrace:%s\n", bt);
+  }
+  free(sum);
+  esp_core_dump_image_erase();  // Report each crash once.
 }
 
 void printf(const char *fmt, ...) {

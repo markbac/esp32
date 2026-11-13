@@ -15,7 +15,7 @@ Home weather station firmware for two displays that share one core:
 - Met Office warnings and AuroraWatch UK aurora alerts.
 - Sunrise, sunset and moon phase.
 - Nearby flights with **trails**. On the CrowPanel, **tap any plane** for its **photo**, route and details, switch to a **list of every aircraft, nearest first**, and set the **radar radius** (5 to 100 nm) with - / +.
-- **Wi-Fi and network diagnostics** (CrowPanel): live signal meter, every network in range with 3 hours of signal history, a 30-second latency / jitter / packet-loss / speed test, and a 15 minute to 2 hour **monitor** that catches intermittent lag and drop-outs. Run it from a USB power bank to check any room.
+- **Wi-Fi and network diagnostics** (CrowPanel): live signal meter, every network in range with 3 hours of signal history, a **channel map and air survey** (how many devices are busy on your Wi-Fi, neighbours on your channel, air time used, re-sent frames, beacon overhead, busiest devices), a 30-second latency / jitter / packet-loss / speed test, and a 15 minute to 8 hour **monitor** that catches intermittent lag, drop-outs (with the reason) and moves between mesh nodes. Run it from a USB power bank to check any room.
 - **Logs on an SD card** (CrowPanel): a daily debug log and a daily network CSV, viewable and downloadable from the web dashboard.
 - **Home Assistant** summary (temperatures, people, heating, power, lights, open doors).
 - **Home lab**: NAS health (Glances), internet speed (Speedtest Tracker), services (Uptime Kuma), Sonos now playing.
@@ -55,11 +55,14 @@ On the CrowPanel, open **Network**:
 | Tab | What it does |
 |---|---|
 | Signal | Live strength of your Wi-Fi here (updates every second), every network in range and 3 hours of signal history. |
+| Crowding | Channel map of every 2.4 GHz network (yours, including all mesh nodes and guest/IoT SSIDs, and the neighbours') with the quietest channel, plus a 20 s **air survey**: devices actually sending data on your Wi-Fi, other devices on the channel, how busy the air is, how often frames are re-sent, how much air your access points' beacons use, and the busiest devices. |
 | Test | About 30 s: 20 pings to your router (this room's Wi-Fi), 20 to 1.1.1.1 (your broadband), a DNS lookup and an 8 s download. Gives a verdict and says whether the Wi-Fi or the internet is to blame. |
-| Monitor | Pings both once a second for 15, 30, 60 or 120 minutes and records each minute: average and worst ping, lost pings, spikes over 200 ms and drop-outs. For problems that come and go. |
+| Monitor | For problems that come and go: runs 15 minutes to 8 hours, pinging the router and the internet every second and listening to the channel. Each minute records ping, lost pings, spikes over 200 ms, drop-outs, signal, mesh moves, DNS time, active devices, air busy and re-sends. Views: **Ping**, **Signal**, **Air** and **Events** (e.g. "Wi-Fi dropped: beacon timeout", "Lag spike 1007 ms to the internet"). |
 | Help | What each number means. |
 
-Run the panel from a USB power bank to test the room where the problem is. Results are saved to the SD card and shown at `http://weather7.local/logs`, where you can also start a test or monitor from your phone. The download speed is what the panel itself manages (about 1 to 10 Mbps), so use it to compare rooms rather than to check your broadband.
+Run the panel from a USB power bank to test the room where the problem is. Results are saved to the SD card and shown at `http://weather7.local/logs`, where you can also start a test, an air survey or a monitor from your phone. `http://weather7.local/api/wifi.json` lists every network with its signal history. The download speed is what the panel itself manages (about 1 to 10 Mbps), so use it to compare rooms rather than to check your broadband.
+
+The panel's radio is **2.4 GHz only**: it cannot see 5 GHz networks or devices. The air survey only reads frame headers (addresses, size, speed); the content is encrypted and never read.
 
 ## Logs (SD card)
 
@@ -69,6 +72,8 @@ Put a FAT32 micro SD card in the CrowPanel's TF slot. Each day it writes:
 - `/logs/net-YYYY-MM-DD.csv`: Wi-Fi scans, test results, monitor minutes and drop-outs
 
 Files older than 60 days are deleted. `http://weather7.local/logs` lists them for viewing or download and shows a live log (the live log works without a card too).
+
+Each boot logs why the board restarted. After a crash it also logs the crashed task and its backtrace (from the core dump in flash); decode it with `xtensa-esp32s3-elf-addr2line -pfiaC -e .pio/build/crowpanel_7/firmware.elf <addresses>`.
 
 ## Controls
 

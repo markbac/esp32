@@ -5,6 +5,7 @@
 #include "web_ui.h"
 #include "log.h"
 #include "net_test.h"
+#include "wifi_scan.h"
 
 #include <ESPmDNS.h>
 #include <WebServer.h>
@@ -14,7 +15,7 @@
 #include "connectivity.h"
 #include "data_service.h"
 #include "history.h"
-#include "web_page.h"
+#include "web_page_gz.h"  // Generated at build time from web_page.h (scripts/gzip_web_page.py).
 #include "web_settings.h"
 #include "web_api.h"
 
@@ -244,11 +245,15 @@ void begin(const Board &b) {
 
   if (MDNS.begin(HOSTNAME)) MDNS.addService("http", "tcp", 80);
 
-  server.on("/", HTTP_GET, [] { server.send(200, "text/html", WEB_PAGE); });
+  server.on("/", HTTP_GET, [] {
+    server.sendHeader("Content-Encoding", "gzip");
+    server.send_P(200, "text/html", reinterpret_cast<const char *>(WEB_PAGE_GZ), WEB_PAGE_GZ_LEN);
+  });
   server.on("/screen.bmp", HTTP_GET, handleScreen);
   Log::registerRoutes(server);
 #if ENABLE_NET_TOOLS
-  NetTest::registerRoutes(server);  // CrowPanel only: keeps the Feather image within its flash slot.
+  NetTest::registerRoutes(server);  // CrowPanel only (network tools).
+  WifiScan::registerRoutes(server);
 #endif
   server.on("/api/now.json", HTTP_GET, handleNow);
   server.on("/history.csv", HTTP_GET, handleHistory);

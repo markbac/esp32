@@ -23,6 +23,7 @@
 #include "data_service.h"
 #include "display.h"
 #include "history.h"
+#include "air_survey.h"
 #include "net_test.h"
 #include "recorder.h"
 #include "settings.h"
@@ -103,7 +104,7 @@ void autoPage() {
   const SettingsData cfg = Settings::get();
   if (!cfg.autoPage || asleep) return;
   if (Ui::current() == Page::Settings) return;                      // Don't move away while editing.
-  if (NetTest::running() || NetTest::monitoring()) return;          // Keep a Wi-Fi test on screen.
+  if (NetTest::running() || NetTest::monitoring() || AirSurvey::active()) return;  // Keep a Wi-Fi test on screen.
   if (Ui::stats().lastTouchMs && now - Ui::stats().lastTouchMs < CP_TOUCH_HOLD_MS) return;
   if (now - lastPageChangeMs < cfg.autoPageSecs * 1000UL) return;
   Ui::advance();
@@ -134,7 +135,10 @@ void webExtraJson(JsonDocument &doc) {
     n["downMbps"] = t.downMbps;
     n["agoS"] = (millis() - t.finishedAtMs) / 1000;
   }
-  static MonitorData m;  // 3 KB: keep it off the web task's stack.
+  static MonitorData *mp = static_cast<MonitorData *>(
+      heap_caps_malloc(sizeof(MonitorData), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));  // 17 KB, PSRAM.
+  if (!mp) return;
+  MonitorData &m = *mp;
   NetTest::monitor(m);
   if (m.running || m.count) {
     JsonObject o = doc["monitor"].to<JsonObject>();
@@ -150,6 +154,29 @@ void webExtraJson(JsonDocument &doc) {
     o["dropouts"] = m.dropouts;
     o["worstMs"] = m.worstMs;
     o["weakestRssi"] = m.rssiMin;
+    o["roams"] = m.roams;
+    o["dnsFails"] = m.dnsFails;
+    if (m.airSurvey) {
+      o["devicesMax"] = m.devicesMax;
+      o["busyMaxPct"] = m.busyMax;
+    }
+    JsonArray ev = o["events"].to<JsonArray>();
+    for (int i = max(0, m.eventCount - 10); i < m.eventCount; ++i) {
+      char d[80];
+      NetTest::describe(m.events[i], d, sizeof(d));
+      ev.add(d);
+    }
+  }
+  const AirStats a = AirSurvey::lastTimed();
+  if (a.durationMs) {
+    JsonObject o = doc["airSurvey"].to<JsonObject>();
+    o["channel"] = a.channel;
+    o["devicesOnRouter"] = a.devicesOurs;
+    o["otherDevices"] = a.devicesOther;
+    o["accessPoints"] = a.accessPoints;
+    o["busyPct"] = static_cast<int>(a.busyPct());
+    o["retryPct"] = static_cast<int>(a.retryPct());
+    o["seconds"] = a.durationMs / 1000;
   }
   if (s.lastTapX >= 0) {
     doc["lastTap"]["x"] = s.lastTapX;
@@ -187,6 +214,7 @@ void setup() {
   Display::lcd().drawString("Connecting to Wi-Fi...", 40, 40);
 
   Log::begin();  // SD card logs (buffered until the clock is set, then /logs/*-YYYY-MM-DD.*).
+  Log::bootReport();
   Settings::begin();
   History::begin();
   // Wi-Fi from the web settings if set, falling back to the compiled-in network.
@@ -238,6 +266,7 @@ void loop() {
     autoPage();
     Net::maintain();
     WifiScan::poll();
+    AirSurvey::poll();
     Settings::flush();
     Recorder::poll();
   }

@@ -11,6 +11,10 @@
  *          Tabs: Now, Forecast, Radar, Flights, Air & Grid, Sky & Alerts,
  *          Home, Lab, History, Mirror (live screenshots of the display),
  *          System. The URL hash selects the tab (e.g. /#flights).
+ *
+ *          This file is the editable source only: scripts/gzip_web_page.py
+ *          gzips the HTML at build time into web_page_gz.h, which is what the
+ *          firmware stores and serves (Content-Encoding: gzip).
  */
 #pragma once
 

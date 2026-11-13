@@ -8,6 +8,10 @@
  *          3. a DNS lookup,
  *          4. an HTTPS download from speed.cloudflare.com for up to 8 s.
  *
+ *          While a monitor runs the radio also listens to the channel
+ *          (AirSurvey) to count active devices, air time and retries, and a
+ *          DNS lookup is timed each minute.
+ *
  *          Lag and glitches show up as high or uneven ping times (jitter) and
  *          lost pings, so the router ping is the best test of a room's Wi-Fi.
  *          The download figure is what this ESP32 achieves (single-antenna
@@ -59,34 +63,57 @@ struct NetTestResult {
 /** @brief Ping time that counts as a lag spike. */
 constexpr uint16_t MONITOR_SPIKE_MS = 200;
 /** @brief Longest monitor run (one log entry per minute). */
-constexpr uint8_t MONITOR_MAX_MIN = 120;
+constexpr uint16_t MONITOR_MAX_MIN = 480;
+/** @brief Notable events kept per monitor run (oldest dropped when full). */
+constexpr uint8_t MONITOR_MAX_EVENTS = 100;
 
 /** @brief One minute of a monitor run. */
 struct MonitorMinute {
-  int8_t rssiAvg = 0, rssiMin = 0;      ///< Signal, dBm.
+  time_t at = 0;                         ///< Start of the minute (epoch).
+  int8_t rssiAvg = 0, rssiMin = 0;       ///< Signal, dBm.
   uint16_t routerAvg = 0, routerMax = 0; ///< Router ping, ms.
   uint16_t inetAvg = 0, inetMax = 0;     ///< Internet ping, ms.
   uint8_t routerSent = 0, routerLost = 0;
   uint8_t inetSent = 0, inetLost = 0;
   uint8_t spikes = 0;                    ///< Pings (either target) over MONITOR_SPIKE_MS.
   uint8_t dropouts = 0;                  ///< Times Wi-Fi disconnected in this minute.
-  time_t at = 0;                         ///< Start of the minute (epoch).
+  uint8_t roams = 0;                     ///< Moves to another access point / channel.
+  uint8_t devices = 0;                   ///< Devices exchanging data with your router (air survey).
+  uint8_t otherDevices = 0;              ///< Other transmitters on the channel.
+  uint8_t busyPct = 0;                   ///< Estimated channel air time in use.
+  uint8_t retryPct = 0;                  ///< Frames that had to be re-sent.
+  uint16_t dnsMs = 0;                    ///< DNS lookup time (0 = not checked, 0xFFFF = failed).
 };
 
-/** @brief State and log of the current/last monitor run. */
+/** @brief Kinds of monitor event. */
+enum class MonitorEventType : uint8_t { Start, End, Drop, Back, Roam, Spike, Loss, DnsFail, Weak, Busy, Retries };
+
+/** @brief Something notable during a monitor run, for the Events list and the log. */
+struct MonitorEvent {
+  time_t at = 0;
+  MonitorEventType type = MonitorEventType::Start;
+  int16_t a = 0, b = 0;  ///< Meaning depends on type (see NetTest::describe()).
+};
+
+/** @brief State and log of the current/last monitor run (about 17 KB; kept in PSRAM). */
 struct MonitorData {
   bool running = false;
-  uint8_t durationMin = 0;               ///< Requested length.
+  uint16_t durationMin = 0;              ///< Requested length.
   uint32_t startedAtMs = 0, endedAtMs = 0;
-  uint8_t count = 0;                     ///< Completed minutes in @ref log.
+  uint16_t count = 0;                    ///< Completed minutes in @ref log.
   MonitorMinute log[MONITOR_MAX_MIN];
   MonitorMinute current;                 ///< Minute in progress.
+  MonitorEvent events[MONITOR_MAX_EVENTS];  ///< Oldest first.
+  uint8_t eventCount = 0;
   // Totals over the run.
   uint32_t routerSent = 0, routerLost = 0, inetSent = 0, inetLost = 0;
-  uint32_t spikes = 0, dropouts = 0;
+  uint32_t spikes = 0, dropouts = 0, roams = 0, dnsFails = 0;
   uint16_t worstMs = 0;                  ///< Highest ping (either target).
   time_t worstAt = 0;
   int8_t rssiMin = 0;                    ///< Weakest signal seen.
+  uint8_t devicesMax = 0;                ///< Most devices active on your router in one minute.
+  uint8_t busyMax = 0;                   ///< Busiest minute, % air time.
+  bool airSurvey = false;                ///< Device / air time figures were collected.
   /** @brief One-word verdict for the run so far. */
   const char *verdict() const;
 };
@@ -103,7 +130,13 @@ NetTestResult get();
 bool running();
 
 /** @brief Start a monitor run of @p minutes (1-MONITOR_MAX_MIN); false if busy or offline. */
-bool startMonitor(uint8_t minutes);
+bool startMonitor(uint16_t minutes);
+
+/** @brief One-line description of @p e ("Wi-Fi dropped: beacon timeout"). */
+void describe(const MonitorEvent &e, char *buf, size_t n);
+
+/** @brief Short name for a Wi-Fi disconnect reason code. */
+const char *reasonName(int reason);
 
 /** @brief Stop a monitor run early (its log is kept). */
 void stopMonitor();
@@ -112,12 +145,12 @@ void stopMonitor();
 bool monitoring();
 
 /**
- * @brief Register POST /api/nettest on @p server: action=test | monitor (with minutes=) | stop.
+ * @brief Register POST /api/nettest on @p server: action=test | air | monitor (with minutes=) | stop.
  *        Results appear in /api/now.json ("netTest", "monitor") and the network log.
  */
 void registerRoutes(WebServer &server);
 
-/** @brief Copy the monitor state into @p out (thread-safe; about 2.5 KB). */
+/** @brief Copy the monitor state into @p out (thread-safe; about 17 KB, so keep @p out off the stack). */
 void monitor(MonitorData &out);
 
 }  // namespace NetTest

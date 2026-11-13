@@ -178,6 +178,10 @@ float bestShift(const uint8_t *a, const uint8_t *b, int &bdx, int &bdy) {
         bdy = dy;
       }
     }
+    // Long, CPU-bound search on core 0: yield each row so the idle task (and the
+    // task watchdog) are never starved - this reset the board once the Wi-Fi
+    // tools added load on the same core.
+    vTaskDelay(1);
   }
   return aCount ? static_cast<float>(best) / aCount : 0;
 }
@@ -197,7 +201,10 @@ RadarEta estimate(const RadarLoop &loop) {
   // Masks for the newest (up to) 4 frames, oldest first.
   const int n = min<int>(4, loop.count);
   int counts[4] = {};
-  for (int i = 0; i < n; ++i) rainMask(loop.frames[loop.count - n + i].pixels, masks + i * GW * GH, counts[i]);
+  for (int i = 0; i < n; ++i) {
+    rainMask(loop.frames[loop.count - n + i].pixels, masks + i * GW * GH, counts[i]);
+    vTaskDelay(1);
+  }
   const uint8_t *newest = masks + (n - 1) * GW * GH;
   eta.coverage = static_cast<float>(counts[n - 1]) / (GW * GH);
 

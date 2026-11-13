@@ -12,6 +12,7 @@
 #include <lwip/ip_addr.h>
 #include <ping/ping_sock.h>
 
+#include "air_survey.h"
 #include "https_get.h"
 #include "wifi_scan.h"
 #include <time.h>
@@ -189,7 +190,7 @@ void task(void *) {
   Log::printf("[nettest] done: %s\n", r.verdict());
   {
     char row[200];
-    snprintf(row, sizeof(row), "test,%d,%.0f,%.0f,%u,%u,%.0f,%.0f,%u,%u,,,%.1f,%s,jitter %.0f/%.0f ms dns %.0f ms", r.rssi,
+    snprintf(row, sizeof(row), "test,%d,%.0f,%.0f,%u,%u,%.0f,%.0f,%u,%u,,,%.1f,%s,,,,,,,jitter %.0f/%.0f ms dns %.0f ms", r.rssi,
              r.router.avgMs, r.router.maxMs, static_cast<unsigned>(r.router.sent - r.router.received), r.router.sent, r.internet.avgMs,
              r.internet.maxMs, static_cast<unsigned>(r.internet.sent - r.internet.received), r.internet.sent, r.downMbps, r.verdict(),
              r.router.jitterMs, r.internet.jitterMs, r.dnsMs);
@@ -201,13 +202,41 @@ void task(void *) {
 
 // ---------------------------------------------------------------- monitor
 
-MonitorData mon;                       ///< Guarded by mutex.
+MonitorData *monp = nullptr;           ///< In PSRAM; guarded by mutex.
+#define mon (*monp)
 
 /** @brief Running sums for the minute in progress. */
 struct Acc {
   uint32_t rSum = 0, rN = 0, iSum = 0, iN = 0, rssiN = 0;
   int32_t rssiSum = 0;
 } acc;
+
+volatile int lastDisconnectReason = 0;  ///< From the Wi-Fi event, for drop-out events.
+bool reasonHooked = false;
+
+/** @brief Hostnames cycled for the per-minute DNS check, so lookups are rarely served from cache. */
+const char *const DNS_NAMES[] = {"www.bbc.co.uk",    "www.google.com",  "www.wikipedia.org", "www.cloudflare.com",
+                                 "www.github.com",   "www.amazon.co.uk", "www.microsoft.com", "www.apple.com",
+                                 "www.youtube.com",  "www.netflix.com"};
+
+/** @brief Record an event (and log it); caller holds the lock. */
+void event(MonitorEventType type, int a = 0, int b = 0) {
+  MonitorEvent e;
+  e.at = time(nullptr);
+  e.type = type;
+  e.a = static_cast<int16_t>(constrain(a, -32768, 32767));
+  e.b = static_cast<int16_t>(constrain(b, -32768, 32767));
+  if (mon.eventCount == MONITOR_MAX_EVENTS) {
+    memmove(mon.events, mon.events + 1, (MONITOR_MAX_EVENTS - 1) * sizeof(MonitorEvent));
+    --mon.eventCount;
+  }
+  mon.events[mon.eventCount++] = e;
+  char d[80], row[120];
+  NetTest::describe(e, d, sizeof(d));
+  Log::printf("[monitor] event: %s\n", d);
+  snprintf(row, sizeof(row), "event,%d,,,,,,,,,,,,,,,,,,,%s", static_cast<int>(WiFi.RSSI()), d);
+  Log::net(row);
+}
 
 /** @brief Ping callbacks for monitor sessions; arg = 0 router, 1 internet. */
 void monReply(esp_ping_handle_t h, void *arg) {
@@ -276,19 +305,42 @@ esp_ping_handle_t monSession(const char *host, bool inet) {
 }
 
 /** @brief Close the minute in progress into the log; caller holds the lock. */
-void closeMinute() {
+void closeMinute(const AirStats &air) {
   MonitorMinute &m = mon.current;
   m.routerAvg = acc.rN ? acc.rSum / acc.rN : 0;
   m.inetAvg = acc.iN ? acc.iSum / acc.iN : 0;
   m.rssiAvg = acc.rssiN ? static_cast<int8_t>(acc.rssiSum / static_cast<int32_t>(acc.rssiN)) : 0;
+  if (air.durationMs) {
+    mon.airSurvey = true;
+    m.devices = static_cast<uint8_t>(min<int>(air.devicesOurs, 255));
+    m.otherDevices = static_cast<uint8_t>(min<int>(air.devicesOther, 255));
+    m.busyPct = static_cast<uint8_t>(air.busyPct());
+    m.retryPct = static_cast<uint8_t>(air.retryPct());
+    mon.devicesMax = max(mon.devicesMax, m.devices);
+    mon.busyMax = max(mon.busyMax, m.busyPct);
+  }
+  // Events for the minute (at most one of each kind, so the list stays readable).
+  const bool prevWeak = mon.count && mon.log[mon.count - 1].rssiMin && mon.log[mon.count - 1].rssiMin < -80;
+  if (m.routerMax > 500 || m.inetMax > 500)
+    event(MonitorEventType::Spike, max(m.routerMax, m.inetMax), m.routerMax >= m.inetMax ? 0 : 1);
+  if (m.routerLost >= 3 || m.inetLost >= 3)
+    event(MonitorEventType::Loss, max(m.routerLost, m.inetLost), m.routerLost >= m.inetLost ? 0 : 1);
+  if (m.rssiMin && m.rssiMin < -80 && !prevWeak) event(MonitorEventType::Weak, m.rssiMin);
+  if (m.busyPct >= 60) event(MonitorEventType::Busy, m.busyPct, m.devices);
+  if (m.retryPct >= 25 && air.frames > 200) event(MonitorEventType::Retries, m.retryPct);
+
   if (mon.count < MONITOR_MAX_MIN) mon.log[mon.count++] = m;
-  char row[160];
-  snprintf(row, sizeof(row), "monitor,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,,,minute %u of %u min, weakest %d dBm", m.rssiAvg,
+  char row[220];
+  snprintf(row, sizeof(row),
+           "monitor,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,,,%u,%u,%u,%u,%s%u,%u,minute %u of %u; weakest %d dBm", m.rssiAvg,
            m.routerAvg, m.routerMax, m.routerLost, m.routerSent, m.inetAvg, m.inetMax, m.inetLost, m.inetSent, m.spikes,
-           m.dropouts, mon.count, mon.durationMin, m.rssiMin);
+           m.dropouts, m.devices, m.otherDevices, m.busyPct, m.retryPct, m.dnsMs == 0xFFFF ? "-" : "",
+           static_cast<unsigned>(m.dnsMs == 0xFFFF ? 0 : m.dnsMs), m.roams, mon.count, mon.durationMin, m.rssiMin);
   Log::net(row);
-  Log::printf("[monitor] min %u: rssi %d router %u/%u ms lost %u inet %u/%u ms lost %u spikes %u drops %u\n", mon.count,
-                m.rssiAvg, m.routerAvg, m.routerMax, m.routerLost, m.inetAvg, m.inetMax, m.inetLost, m.spikes, m.dropouts);
+  Log::printf("[monitor] min %u: rssi %d router %u/%u ms lost %u inet %u/%u ms lost %u spikes %u drops %u devices %u "
+              "busy %u%% retry %u%% dns %u\n",
+              mon.count, m.rssiAvg, m.routerAvg, m.routerMax, m.routerLost, m.inetAvg, m.inetMax, m.inetLost, m.spikes,
+              m.dropouts, m.devices, m.busyPct, m.retryPct, m.dnsMs);
   m = MonitorMinute{};
   m.at = time(nullptr);
   acc = Acc{};
@@ -297,7 +349,19 @@ void closeMinute() {
 void monTask(void *) {
   esp_ping_handle_t r = nullptr, i = nullptr;
   bool wasUp = true;
+  uint32_t downAt = 0;
+  uint8_t lastBssid[6] = {};
+  int lastChannel = 0;
+  uint8_t dnsIdx = 0;
+  bool dnsDone = false;
   for (int k = 0; k < 60 && WifiScan::scanning(); ++k) delay(100);
+  AirSurvey::stop();  // A timed survey from the Crowding page would otherwise own the radio.
+  WifiScan::ensureScanned();  // Before any pings: identifies your mesh nodes for the air figures.
+  const bool air = AirSurvey::start();
+  if (WiFi.status() == WL_CONNECTED) {
+    memcpy(lastBssid, WiFi.BSSID(), 6);
+    lastChannel = WiFi.channel();
+  }
   uint32_t minuteStart = millis();
   const uint32_t endAt = millis() + mon.durationMin * 60000UL;
   while (!monStop && static_cast<int32_t>(millis() - endAt) < 0) {
@@ -305,14 +369,36 @@ void monTask(void *) {
     if (up && !r) {  // (Re)start pings once joined; the gateway may change after a reconnect.
       r = monSession(WiFi.gatewayIP().toString().c_str(), false);
       i = monSession("1.1.1.1", true);
+      if (air && !AirSurvey::active()) AirSurvey::start();
     }
+    // DNS check once a minute, half way through (outside the lock: it can take seconds).
+    uint16_t dns = 0;
+    if (up && !dnsDone && millis() - minuteStart >= 30000) {
+      IPAddress ip;
+      const uint32_t t0 = millis();
+      dns = WiFi.hostByName(DNS_NAMES[dnsIdx++ % (sizeof(DNS_NAMES) / sizeof(DNS_NAMES[0]))], ip)
+                ? static_cast<uint16_t>(max<uint32_t>(1, millis() - t0))
+                : 0xFFFF;
+      dnsDone = true;
+    }
+    const bool minuteDue = millis() - minuteStart >= 60000;
+    const AirStats airMin = minuteDue && air ? AirSurvey::take() : AirStats{};
     {
       Lock l;
+      if (dns) {
+        mon.current.dnsMs = dns;
+        if (dns == 0xFFFF) {
+          ++mon.dnsFails;
+          event(MonitorEventType::DnsFail);
+        }
+      }
       if (wasUp && !up) {
         ++mon.current.dropouts;
         ++mon.dropouts;
-        Log::println("[monitor] Wi-Fi dropped");
-        Log::net("dropout,,,,,,,,,,,1,,,Wi-Fi disconnected during monitor");
+        downAt = millis();
+        event(MonitorEventType::Drop, lastDisconnectReason);
+      } else if (!wasUp && up) {
+        event(MonitorEventType::Back, (millis() - downAt) / 1000);
       }
       if (up) {
         const int8_t s = static_cast<int8_t>(WiFi.RSSI());
@@ -320,10 +406,20 @@ void monTask(void *) {
         ++acc.rssiN;
         if (!mon.current.rssiMin || s < mon.current.rssiMin) mon.current.rssiMin = s;
         if (!mon.rssiMin || s < mon.rssiMin) mon.rssiMin = s;
+        const uint8_t *b = WiFi.BSSID();
+        const int ch = WiFi.channel();
+        if (b && lastChannel && (memcmp(b, lastBssid, 6) != 0 || ch != lastChannel)) {
+          ++mon.current.roams;
+          ++mon.roams;
+          event(MonitorEventType::Roam, lastChannel, ch);
+        }
+        if (b) memcpy(lastBssid, b, 6);
+        lastChannel = ch;
       }
-      if (millis() - minuteStart >= 60000) {
-        closeMinute();
+      if (minuteDue) {
+        closeMinute(airMin);
         minuteStart += 60000;
+        dnsDone = false;
       }
     }
     if (!up && r) {  // Pings would only time out while disconnected; count the drop-out instead.
@@ -341,20 +437,24 @@ void monTask(void *) {
     esp_ping_stop(h);
     esp_ping_delete_session(h);
   }
+  const AirStats last = air ? AirSurvey::take() : AirStats{};
+  AirSurvey::stop();
   {
     Lock l;
-    if (mon.current.routerSent || mon.current.dropouts) closeMinute();  // Keep a partial last minute.
+    if (mon.current.routerSent || mon.current.dropouts) closeMinute(last);  // Keep a partial last minute.
+    event(MonitorEventType::End, mon.count);
     mon.running = false;
     mon.endedAtMs = millis();
   }
   Log::printf("[monitor] finished: %s\n", mon.verdict());
   {
-    char row[160];
-    snprintf(row, sizeof(row), "monitor_end,%d,,%u,%lu,%lu,,%u,%lu,%lu,%lu,%lu,,%s,%u of %u min", mon.rssiMin, mon.worstMs,
-             static_cast<unsigned long>(mon.routerLost), static_cast<unsigned long>(mon.routerSent), mon.worstMs,
-             static_cast<unsigned long>(mon.inetLost), static_cast<unsigned long>(mon.inetSent),
-             static_cast<unsigned long>(mon.spikes), static_cast<unsigned long>(mon.dropouts), mon.verdict(), mon.count,
-             mon.durationMin);
+    char row[220];
+    snprintf(row, sizeof(row), "monitor_end,%d,,%u,%lu,%lu,,%u,%lu,%lu,%lu,%lu,,%s,%u,,%u,,%lu,%lu,%u of %u min",
+             mon.rssiMin, mon.worstMs, static_cast<unsigned long>(mon.routerLost),
+             static_cast<unsigned long>(mon.routerSent), mon.worstMs, static_cast<unsigned long>(mon.inetLost),
+             static_cast<unsigned long>(mon.inetSent), static_cast<unsigned long>(mon.spikes),
+             static_cast<unsigned long>(mon.dropouts), mon.verdict(), mon.devicesMax, mon.busyMax,
+             static_cast<unsigned long>(mon.dnsFails), static_cast<unsigned long>(mon.roams), mon.count, mon.durationMin);
     Log::net(row);
   }
   monBusy = false;
@@ -369,8 +469,8 @@ const char *MonitorData::verdict() const {
   const float iLoss = inetSent ? 100.0f * inetLost / inetSent : 0;
   const float spikeRate = routerSent + inetSent ? 100.0f * spikes / (routerSent + inetSent) : 0;
   if (dropouts > 0 || rLoss >= 5) return "Wi-Fi problem";
-  if (rLoss >= 1 || spikeRate >= 5) return "Wi-Fi unstable";
-  if (iLoss >= 2 || spikeRate >= 2) return "Internet issues";
+  if (rLoss >= 1 || spikeRate >= 5) return busyMax >= 60 ? "Wi-Fi congested" : "Wi-Fi unstable";
+  if (iLoss >= 2 || spikeRate >= 2 || dnsFails > 2) return "Internet issues";
   return "Healthy";
 }
 
@@ -415,22 +515,32 @@ NetTestResult get() {
 
 bool running() { return busy; }
 
-bool startMonitor(uint8_t minutes) {
+bool startMonitor(uint16_t minutes) {
   if (!mutex) mutex = xSemaphoreCreateMutex();
   if (monBusy || busy || WiFi.status() != WL_CONNECTED) return false;
+  if (!monp) {
+    monp = static_cast<MonitorData *>(heap_caps_malloc(sizeof(MonitorData), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!monp) return false;
+  }
+  if (!reasonHooked) {
+    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) { lastDisconnectReason = info.wifi_sta_disconnected.reason; },
+                 ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    reasonHooked = true;
+  }
   monBusy = true;
   monStop = false;
   {
     Lock l;
-    memset(&mon, 0, sizeof(mon));  // All-zero = defaults; avoids a 2.5 KB temporary on the caller's stack.
+    memset(monp, 0, sizeof(MonitorData));  // All-zero = defaults (17 KB: never build a temporary).
     mon.running = true;
     mon.durationMin = constrain(minutes, 1, MONITOR_MAX_MIN);
     mon.startedAtMs = millis();
     mon.current.at = time(nullptr);
     acc = Acc{};
+    event(MonitorEventType::Start, mon.durationMin);
   }
   Log::printf("[monitor] start, %u min\n", minutes);
-  if (xTaskCreatePinnedToCore(monTask, "monitor", 4096, nullptr, 1, nullptr, 0) != pdPASS) {
+  if (xTaskCreatePinnedToCore(monTask, "monitor", 6144, nullptr, 1, nullptr, 0) != pdPASS) {
     monBusy = false;
     Lock l;
     mon.running = false;
@@ -448,6 +558,7 @@ void registerRoutes(WebServer &server) {
     bool ok = false;
     if (a == "test") ok = start();
     else if (a == "monitor") ok = startMonitor(constrain(srv->arg("minutes").toInt(), 1, MONITOR_MAX_MIN));
+    else if (a == "air") ok = !busy && !monBusy && AirSurvey::startTimed(20000);
     else if (a == "stop") ok = (stopMonitor(), true);
     srv->send(ok ? 200 : 409, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"busy or offline\"}");
   });
@@ -456,14 +567,58 @@ void registerRoutes(WebServer &server) {
 bool monitoring() { return monBusy; }
 
 void monitor(MonitorData &out) {
-  if (!mutex) {
+  if (!mutex || !monp) {
     out.running = false;
     out.count = 0;
+    out.eventCount = 0;
     out.startedAtMs = 0;
     return;
   }
   Lock l;
-  out = mon;
+  memcpy(&out, monp, sizeof(MonitorData));
+}
+
+const char *reasonName(int r) {
+  switch (r) {
+    case 0: return "unknown";
+    case 1: return "unspecified";
+    case 2: return "auth expired";
+    case 3: return "router ended it";
+    case 4: return "inactive too long";
+    case 5: return "router full";
+    case 6: case 7: return "not authenticated";
+    case 8: return "left";
+    case 15: return "key handshake timeout";
+    case 23: return "802.1X auth failed";
+    case 200: return "beacon timeout (signal lost)";
+    case 201: return "router not found";
+    case 202: return "auth failed";
+    case 203: return "association failed";
+    case 204: return "handshake timeout";
+    case 205: return "connection failed";
+    default: return "other";
+  }
+}
+
+void describe(const MonitorEvent &e, char *buf, size_t n) {
+  char t[6];
+  tm lt;
+  localtime_r(&e.at, &lt);
+  snprintf(t, sizeof(t), "%02d:%02d", lt.tm_hour, lt.tm_min);
+  const char *who = e.b ? "internet" : "router";
+  switch (e.type) {
+    case MonitorEventType::Start: snprintf(buf, n, "%s Monitor started for %d min", t, e.a); break;
+    case MonitorEventType::End: snprintf(buf, n, "%s Monitor ended after %d min", t, e.a); break;
+    case MonitorEventType::Drop: snprintf(buf, n, "%s Wi-Fi dropped: %s (%d)", t, reasonName(e.a), e.a); break;
+    case MonitorEventType::Back: snprintf(buf, n, "%s Wi-Fi back after %d s", t, e.a); break;
+    case MonitorEventType::Roam: snprintf(buf, n, "%s Moved access point (ch %d to %d)", t, e.a, e.b); break;
+    case MonitorEventType::Spike: snprintf(buf, n, "%s Lag spike %d ms to the %s", t, e.a, who); break;
+    case MonitorEventType::Loss: snprintf(buf, n, "%s %d pings lost to the %s in a minute", t, e.a, who); break;
+    case MonitorEventType::DnsFail: snprintf(buf, n, "%s DNS lookup failed", t); break;
+    case MonitorEventType::Weak: snprintf(buf, n, "%s Weak signal %d dBm", t, e.a); break;
+    case MonitorEventType::Busy: snprintf(buf, n, "%s Channel %d%% busy (%d devices on router)", t, e.a, e.b); break;
+    case MonitorEventType::Retries: snprintf(buf, n, "%s %d%% of frames re-sent (interference)", t, e.a); break;
+  }
 }
 
 }  // namespace NetTest

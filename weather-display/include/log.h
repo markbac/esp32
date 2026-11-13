@@ -30,7 +30,8 @@ constexpr uint16_t LOG_KEEP_DAYS = 60;
 /** @brief CSV header for the network log. */
 constexpr const char *NET_LOG_HEADER =
     "time,type,rssi,router_avg_ms,router_max_ms,router_lost,router_sent,internet_avg_ms,internet_max_ms,"
-    "internet_lost,internet_sent,spikes,dropouts,down_mbps,verdict,detail";
+    "internet_lost,internet_sent,spikes,dropouts,down_mbps,verdict,devices,other_devices,busy_pct,retry_pct,dns_ms,"
+    "roams,detail";
 
 namespace Log {
 
@@ -39,6 +40,14 @@ namespace Log {
  * @return true if the card is ready for logging.
  */
 bool begin();
+
+/**
+ * @brief Log why the board last restarted and, after a crash, the crashed task and
+ *        its backtrace from the core dump in flash (then erase it so it is reported
+ *        once). Decode the addresses with:
+ *        xtensa-esp32s3-elf-addr2line -pfiaC -e .pio/build/<env>/firmware.elf <addresses>
+ */
+void bootReport();
 
 /** @brief printf to serial, the RAM tail and the SD app log. */
 void printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));

@@ -27,7 +27,7 @@
  * | Flights    | -                                       |
  * | History    | -                                       |
  * | Home       | Home Assistant, Lab                     |
- * | Network    | Signal, Test, Monitor, Help             |
+ * | Network    | Signal, Crowding, Test, Monitor, Help   |
  * | System     | Status, Settings                        |
  */
 enum class Page : uint8_t {
@@ -43,8 +43,9 @@ enum class Page : uint8_t {
   Home,        ///< Home Assistant: temperatures, people, heating, power, lights, open doors.
   Lab,         ///< Home lab: NAS health, internet speed, services, Sonos.
   Wifi,        ///< Network > Signal: live signal meter, networks in range, signal history.
+  NetCrowd,    ///< Network > Crowding: channel map and 20 s air survey (devices, air time, re-sends).
   NetTest,     ///< Network > Test: 30-second latency / jitter / loss / DNS / speed test.
-  NetMonitor,  ///< Network > Monitor: 15-120 minute glitch watch with per-minute timeline.
+  NetMonitor,  ///< Network > Monitor: 15 min to 8 h glitch watch: ping, signal, air and events views.
   NetHelp,     ///< Network > Help: what each test measures and how to read it.
   System,      ///< Network, Tempest hub/sensor, device, SD card and feed status.
   Settings,    ///< Touch settings: auto page (and its pages), sleep, backlight.

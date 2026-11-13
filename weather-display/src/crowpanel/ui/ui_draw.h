@@ -80,7 +80,9 @@ struct UiState {
   int flightsScroll = 0;          ///< Flights list: first row shown.
   int wifiScroll = 0;             ///< Wi-Fi page: first row shown.
   uint8_t wifiBssid[6] = {};      ///< Wi-Fi page: network highlighted on the graph (all zero = none).
-  uint8_t monitorMins = 30;       ///< Wi-Fi page: length of the next monitor run.
+  uint16_t monitorMins = 60;      ///< Monitor page: length of the next run, minutes.
+  uint8_t monitorView = 0;        ///< Monitor page: 0 Ping, 1 Signal, 2 Air, 3 Events.
+  int monitorEventScroll = 0;     ///< Monitor page: events skipped (newest first).
 };
 extern UiState state;
 
@@ -154,6 +156,7 @@ void pageHistory();
 void pageHome();
 void pageLab();
 void pageWifi();
+void pageNetCrowd();
 void pageNetTest();
 void pageNetMonitor();
 void pageNetHelp();
@@ -163,12 +166,14 @@ bool tapRadar(int x, int y);
 bool tapFlights(int x, int y);
 bool tapHistory(int x, int y);
 bool tapWifi(int x, int y);
+bool tapNetCrowd(int x, int y);
 bool tapNetTest(int x, int y);
 bool tapNetMonitor(int x, int y);
 bool tapSettings(int x, int y);
 /** @brief Vertical drag of @p dy pixels on a list page (negative = finger moved up). */
 bool dragFlights(int dy);
 bool dragWifi(int dy);
+bool dragNetMonitor(int dy);
 ///@}
 
 }  // namespace UiDraw

@@ -15,7 +15,7 @@ A weather station that reads a **WeatherFlow Tempest** over the local network an
 
 Both serve a local web dashboard (`http://weather7.local` or `http://weather.local`) with interactive maps, charts, history downloads, settings and logs.
 
-The CrowPanel doubles as a **portable Wi-Fi tester**: on a USB power bank it shows live signal strength, every network in range, and runs latency, jitter, packet-loss and speed tests. A long-running monitor catches lag and drop-outs that come and go.
+The CrowPanel doubles as a **portable Wi-Fi tester**: on a USB power bank it shows live signal strength and every network in range, surveys how crowded the channel is (devices busy on your Wi-Fi, neighbours, air time, beacon overhead), and runs latency, jitter, packet-loss and speed tests. A monitor of up to 8 hours catches lag, drop-outs and mesh moves that come and go.
 
 All data sources are free and need no API keys. See [weather-display/README.md](weather-display/README.md) to build and flash, and [weather-display/docs/DESIGN.md](weather-display/docs/DESIGN.md) for the architecture.
 

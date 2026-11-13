@@ -16,6 +16,8 @@
 
 #include <Arduino.h>
 
+class WebServer;
+
 /** @brief Networks tracked at once (the longest-unseen is replaced when full). */
 constexpr uint8_t WIFI_MAX_NETS = 32;
 /** @brief RSSI samples kept per network (one per scan). */
@@ -54,6 +56,17 @@ struct WifiScanData {
   }
 };
 
+/** @brief Most "own system" prefixes tracked (one per mesh node model / vendor block). */
+constexpr uint8_t WIFI_MAX_FAMILY = 8;
+
+/** @brief True if @p mac belongs to one of @p n family prefixes. */
+inline bool inFamily(const uint8_t *mac, const uint8_t (*fam)[2], uint8_t n) {
+  for (uint8_t i = 0; i < n; ++i) {
+    if (mac[1] == fam[i][0] && mac[2] == fam[i][1]) return true;
+  }
+  return false;
+}
+
 namespace WifiScan {
 
 /** @brief Start or collect scans as they fall due (call often from the UI loop). */
@@ -62,8 +75,28 @@ void poll();
 /** @brief True while a scan is in progress (the radio is hopping channels). */
 bool scanning();
 
+/**
+ * @brief Run one scan now, blocking ~2 s, if none has completed yet (so the
+ *        network tools know your mesh nodes). Returns true if data exists after.
+ */
+bool ensureScanned();
+
 /** @brief Copy the current survey into @p out (thread-safe). */
 void copy(WifiScanData &out);
+
+/**
+ * @brief  Address prefixes of your own Wi-Fi system (router + mesh nodes, all their SSIDs).
+ * @details Every access point broadcasting the SSID this panel is joined to is
+ *          yours; mesh nodes and their guest/IoT/backhaul networks share bytes
+ *          1-2 of the address with it (byte 0 varies per SSID), so those two
+ *          bytes identify the family.
+ * @param[out] out  Up to WIFI_MAX_FAMILY two-byte prefixes.
+ * @return Number written (0 when not connected or no scan yet).
+ */
+uint8_t ownFamily(uint8_t (*out)[2]);
+
+/** @brief Register GET /api/wifi.json: every network with signal now, best, channel, security and history. */
+void registerRoutes(WebServer &server);
 
 /** @brief Human-readable security name for a wifi_auth_mode_t. */
 const char *authName(uint8_t auth);
