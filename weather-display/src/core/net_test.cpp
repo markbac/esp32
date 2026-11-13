@@ -5,6 +5,7 @@
 #include "net_test.h"
 #include "log.h"
 
+#include <ArduinoJson.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <freertos/FreeRTOS.h>
@@ -189,12 +190,24 @@ void task(void *) {
   }
   Log::printf("[nettest] done: %s\n", r.verdict());
   {
-    char row[200];
-    snprintf(row, sizeof(row), "test,%d,%.0f,%.0f,%u,%u,%.0f,%.0f,%u,%u,,,%.1f,%s,,,,,,,jitter %.0f/%.0f ms dns %.0f ms", r.rssi,
-             r.router.avgMs, r.router.maxMs, static_cast<unsigned>(r.router.sent - r.router.received), r.router.sent, r.internet.avgMs,
-             r.internet.maxMs, static_cast<unsigned>(r.internet.sent - r.internet.received), r.internet.sent, r.downMbps, r.verdict(),
-             r.router.jitterMs, r.internet.jitterMs, r.dnsMs);
-    Log::net(row);
+    JsonDocument doc;
+    doc["type"] = "test";
+    doc["verdict"] = r.verdict();
+    doc["rssi"] = r.rssi;
+    auto ping = [](JsonObject o, const PingStats &p) {
+      o["avgMs"] = roundf(p.avgMs);
+      o["minMs"] = roundf(p.minMs);
+      o["maxMs"] = roundf(p.maxMs);
+      o["jitterMs"] = roundf(p.jitterMs * 10) / 10;
+      o["sent"] = p.sent;
+      o["lost"] = p.sent - p.received;
+    };
+    ping(doc["router"].to<JsonObject>(), r.router);
+    ping(doc["internet"].to<JsonObject>(), r.internet);
+    doc["dnsMs"] = r.dnsMs;
+    doc["downMbps"] = roundf(r.downMbps * 10) / 10;
+    doc["downKB"] = r.downBytes / 1024;
+    Log::net(doc);
   }
   busy = false;
   vTaskDelete(nullptr);
@@ -220,8 +233,9 @@ const char *const DNS_NAMES[] = {"www.bbc.co.uk",    "www.google.com",  "www.wik
                                  "www.youtube.com",  "www.netflix.com"};
 
 /** @brief Record an event (and log it); caller holds the lock. */
-void event(MonitorEventType type, int a = 0, int b = 0) {
+void event(MonitorEventType type, int a = 0, int b = 0, const uint8_t *mac = nullptr) {
   MonitorEvent e;
+  if (mac) memcpy(e.mac, mac, 6);
   e.at = time(nullptr);
   e.type = type;
   e.a = static_cast<int16_t>(constrain(a, -32768, 32767));
@@ -231,11 +245,22 @@ void event(MonitorEventType type, int a = 0, int b = 0) {
     --mon.eventCount;
   }
   mon.events[mon.eventCount++] = e;
-  char d[80], row[120];
+  char d[96];
   NetTest::describe(e, d, sizeof(d));
   Log::printf("[monitor] event: %s\n", d);
-  snprintf(row, sizeof(row), "event,%d,,,,,,,,,,,,,,,,,,,%s", static_cast<int>(WiFi.RSSI()), d);
-  Log::net(row);
+  JsonDocument doc;
+  doc["type"] = "event";
+  doc["event"] = static_cast<int>(type);
+  doc["text"] = d + 6;  // Without the leading "HH:MM ".
+  doc["a"] = e.a;
+  doc["b"] = e.b;
+  if (mac) {
+    char m[18];
+    AirSurvey::macStr(mac, m);
+    doc["mac"] = m;
+  }
+  doc["rssi"] = WiFi.RSSI();
+  Log::net(doc);
 }
 
 /** @brief Ping callbacks for monitor sessions; arg = 0 router, 1 internet. */
@@ -318,6 +343,10 @@ void closeMinute(const AirStats &air) {
     m.retryPct = static_cast<uint8_t>(air.retryPct());
     mon.devicesMax = max(mon.devicesMax, m.devices);
     mon.busyMax = max(mon.busyMax, m.busyPct);
+    for (uint8_t i = 0; i < 3 && i < air.topCount; ++i) {
+      memcpy(m.topMac[i], air.top[i].mac, 6);
+      m.topPct[i] = static_cast<uint8_t>(air.pct(air.top[i].airtimeUs));
+    }
   }
   // Events for the minute (at most one of each kind, so the list stays readable).
   const bool prevWeak = mon.count && mon.log[mon.count - 1].rssiMin && mon.log[mon.count - 1].rssiMin < -80;
@@ -328,15 +357,56 @@ void closeMinute(const AirStats &air) {
   if (m.rssiMin && m.rssiMin < -80 && !prevWeak) event(MonitorEventType::Weak, m.rssiMin);
   if (m.busyPct >= 60) event(MonitorEventType::Busy, m.busyPct, m.devices);
   if (m.retryPct >= 25 && air.frames > 200) event(MonitorEventType::Retries, m.retryPct);
+  if (air.topCount && m.topPct[0] >= 20 && m.busyPct >= 40)  // One device holding a big share of a busy channel.
+    event(MonitorEventType::Hog, m.topPct[0], m.busyPct, m.topMac[0]);
 
   if (mon.count < MONITOR_MAX_MIN) mon.log[mon.count++] = m;
-  char row[220];
-  snprintf(row, sizeof(row),
-           "monitor,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,,,%u,%u,%u,%u,%s%u,%u,minute %u of %u; weakest %d dBm", m.rssiAvg,
-           m.routerAvg, m.routerMax, m.routerLost, m.routerSent, m.inetAvg, m.inetMax, m.inetLost, m.inetSent, m.spikes,
-           m.dropouts, m.devices, m.otherDevices, m.busyPct, m.retryPct, m.dnsMs == 0xFFFF ? "-" : "",
-           static_cast<unsigned>(m.dnsMs == 0xFFFF ? 0 : m.dnsMs), m.roams, mon.count, mon.durationMin, m.rssiMin);
-  Log::net(row);
+  {
+    JsonDocument doc;
+    doc["type"] = "monitor";
+    doc["minute"] = mon.count;
+    doc["of"] = mon.durationMin;
+    doc["rssi"] = m.rssiAvg;
+    doc["rssiMin"] = m.rssiMin;
+    JsonObject ro = doc["router"].to<JsonObject>();
+    ro["avgMs"] = m.routerAvg;
+    ro["maxMs"] = m.routerMax;
+    ro["sent"] = m.routerSent;
+    ro["lost"] = m.routerLost;
+    JsonObject io = doc["internet"].to<JsonObject>();
+    io["avgMs"] = m.inetAvg;
+    io["maxMs"] = m.inetMax;
+    io["sent"] = m.inetSent;
+    io["lost"] = m.inetLost;
+    doc["spikes"] = m.spikes;
+    doc["dropouts"] = m.dropouts;
+    doc["roams"] = m.roams;
+    if (m.dnsMs == 0xFFFF) doc["dnsFailed"] = true;
+    else if (m.dnsMs) doc["dnsMs"] = m.dnsMs;
+    if (air.durationMs) {
+      JsonObject ao = doc["air"].to<JsonObject>();
+      ao["devices"] = m.devices;
+      ao["neighbours"] = m.otherDevices;
+      ao["busyPct"] = m.busyPct;
+      ao["retryPct"] = m.retryPct;
+      ao["yourDataPct"] = roundf(air.pct(air.ourDataUs));
+      ao["broadcastPct"] = roundf(air.pct(air.ourGroupUs));
+      ao["mgmtPct"] = roundf(air.pct(air.ourMgmtUs));
+      ao["backhaulPct"] = roundf(air.pct(air.backhaulUs));
+      ao["beaconPct"] = roundf(air.beaconPct());
+      JsonArray top = ao["top"].to<JsonArray>();
+      for (uint8_t i = 0; i < air.topCount; ++i) {
+        JsonObject t = top.add<JsonObject>();
+        char mm[18];
+        AirSurvey::macStr(air.top[i].mac, mm);
+        t["mac"] = mm;
+        t["airPct"] = roundf(air.pct(air.top[i].airtimeUs) * 10) / 10;
+        t["kB"] = air.top[i].bytes / 1024;
+        if (air.top[i].rssiN) t["rssi"] = air.top[i].rssi();
+      }
+    }
+    Log::net(doc);
+  }
   Log::printf("[monitor] min %u: rssi %d router %u/%u ms lost %u inet %u/%u ms lost %u spikes %u drops %u devices %u "
               "busy %u%% retry %u%% dns %u\n",
               mon.count, m.rssiAvg, m.routerAvg, m.routerMax, m.routerLost, m.inetAvg, m.inetMax, m.inetLost, m.spikes,
@@ -448,14 +518,26 @@ void monTask(void *) {
   }
   Log::printf("[monitor] finished: %s\n", mon.verdict());
   {
-    char row[220];
-    snprintf(row, sizeof(row), "monitor_end,%d,,%u,%lu,%lu,,%u,%lu,%lu,%lu,%lu,,%s,%u,,%u,,%lu,%lu,%u of %u min",
-             mon.rssiMin, mon.worstMs, static_cast<unsigned long>(mon.routerLost),
-             static_cast<unsigned long>(mon.routerSent), mon.worstMs, static_cast<unsigned long>(mon.inetLost),
-             static_cast<unsigned long>(mon.inetSent), static_cast<unsigned long>(mon.spikes),
-             static_cast<unsigned long>(mon.dropouts), mon.verdict(), mon.devicesMax, mon.busyMax,
-             static_cast<unsigned long>(mon.dnsFails), static_cast<unsigned long>(mon.roams), mon.count, mon.durationMin);
-    Log::net(row);
+    JsonDocument doc;
+    doc["type"] = "monitor_end";
+    doc["verdict"] = mon.verdict();
+    doc["minutes"] = mon.count;
+    doc["of"] = mon.durationMin;
+    doc["routerSent"] = mon.routerSent;
+    doc["routerLost"] = mon.routerLost;
+    doc["internetSent"] = mon.inetSent;
+    doc["internetLost"] = mon.inetLost;
+    doc["spikes"] = mon.spikes;
+    doc["dropouts"] = mon.dropouts;
+    doc["roams"] = mon.roams;
+    doc["dnsFails"] = mon.dnsFails;
+    doc["worstMs"] = mon.worstMs;
+    doc["weakestRssi"] = mon.rssiMin;
+    if (mon.airSurvey) {
+      doc["devicesMax"] = mon.devicesMax;
+      doc["busyMaxPct"] = mon.busyMax;
+    }
+    Log::net(doc);
   }
   monBusy = false;
   vTaskDelete(nullptr);
@@ -618,6 +700,10 @@ void describe(const MonitorEvent &e, char *buf, size_t n) {
     case MonitorEventType::Weak: snprintf(buf, n, "%s Weak signal %d dBm", t, e.a); break;
     case MonitorEventType::Busy: snprintf(buf, n, "%s Channel %d%% busy (%d devices on router)", t, e.a, e.b); break;
     case MonitorEventType::Retries: snprintf(buf, n, "%s %d%% of frames re-sent (interference)", t, e.a); break;
+    case MonitorEventType::Hog:
+      snprintf(buf, n, "%s Device ..%02x:%02x:%02x%s used %d%% of the air (channel %d%% busy)", t, e.mac[3], e.mac[4],
+               e.mac[5], (e.mac[0] & 2) ? " (private)" : "", e.a, e.b);
+      break;
   }
 }
 

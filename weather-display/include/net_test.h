@@ -83,16 +83,19 @@ struct MonitorMinute {
   uint8_t busyPct = 0;                   ///< Estimated channel air time in use.
   uint8_t retryPct = 0;                  ///< Frames that had to be re-sent.
   uint16_t dnsMs = 0;                    ///< DNS lookup time (0 = not checked, 0xFFFF = failed).
+  uint8_t topMac[3][6] = {};             ///< Busiest devices this minute, by air time.
+  uint8_t topPct[3] = {};                ///< Their share of the air, %.
 };
 
 /** @brief Kinds of monitor event. */
-enum class MonitorEventType : uint8_t { Start, End, Drop, Back, Roam, Spike, Loss, DnsFail, Weak, Busy, Retries };
+enum class MonitorEventType : uint8_t { Start, End, Drop, Back, Roam, Spike, Loss, DnsFail, Weak, Busy, Retries, Hog };
 
 /** @brief Something notable during a monitor run, for the Events list and the log. */
 struct MonitorEvent {
   time_t at = 0;
   MonitorEventType type = MonitorEventType::Start;
   int16_t a = 0, b = 0;  ///< Meaning depends on type (see NetTest::describe()).
+  uint8_t mac[6] = {};   ///< Device involved (Hog).
 };
 
 /** @brief State and log of the current/last monitor run (about 17 KB; kept in PSRAM). */

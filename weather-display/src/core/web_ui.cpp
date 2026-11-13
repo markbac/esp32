@@ -4,6 +4,7 @@
  */
 #include "web_ui.h"
 #include "log.h"
+#include "air_survey.h"
 #include "net_test.h"
 #include "wifi_scan.h"
 
@@ -254,6 +255,7 @@ void begin(const Board &b) {
 #if ENABLE_NET_TOOLS
   NetTest::registerRoutes(server);  // CrowPanel only (network tools).
   WifiScan::registerRoutes(server);
+  AirSurvey::registerRoutes(server);
 #endif
   server.on("/api/now.json", HTTP_GET, handleNow);
   server.on("/history.csv", HTTP_GET, handleHistory);

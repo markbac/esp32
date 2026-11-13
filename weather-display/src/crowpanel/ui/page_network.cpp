@@ -20,7 +20,7 @@
  *    and Events (drop-outs with reasons, AP moves, spikes, losses).
  *  - **Help**: what each figure means and how to use the tests.
  *
- *  Results also go to the SD card (/logs/net-YYYY-MM-DD.csv) and the web
+ *  Results also go to the SD card (/logs/net-YYYY-MM-DD.jsonl) and the web
  *  page /logs, where tests can be started from a phone.
  */
 #include <WiFi.h>
@@ -475,28 +475,33 @@ void airCard() {
   big(RX + 300, "re-sent", v, a.retryPct() >= 25 ? C::RED : a.retryPct() >= 12 ? C::ORANGE : C::GREEN);
   y += 50;
   textf(RX + 14, y, F::XS, a.ourBeaconPct() >= 15 ? C::ORANGE : C::MUTED, td::top_left,
-        "Beacons use %.0f%% of the air (%.0f%% are yours)", a.beaconPct(), a.ourBeaconPct());
+        "Data %.0f%%, broadcast %.0f%%, beacons %.0f%%, mgmt %.0f%%, other %.0f%%", a.pct(a.ourDataUs + a.backhaulUs),
+        a.pct(a.ourGroupUs), a.beaconPct(), a.pct(a.ourMgmtUs), a.pct(a.otherUs));
   y += 22;
-  text("Busiest devices on your Wi-Fi (share of data)", RX + 14, y, F::XS, C::MUTED);
+  text("Busiest devices on your Wi-Fi (share of air time)", RX + 14, y, F::XS, C::MUTED);
   y += 20;
   for (int i = 0; i < a.topCount; ++i) {
     const AirTalker &t = a.top[i];
-    const float share = a.talkerBytes ? 100.0f * t.bytes / a.talkerBytes : 0;
+    const float share = a.pct(t.airtimeUs);
     textf(RX + 14, y, F::XS, C::TEXT, td::top_left, "..%02x:%02x:%02x%s", t.mac[3], t.mac[4], t.mac[5],
-          (t.mac[0] & 2) ? " (private)" : "");
+          t.randomised() ? " (private)" : "");
     const int bx = RX + 170, bw = RW - 170 - 60;
     canvas.fillRoundRect(bx, y + 3, bw, 10, 5, C::CARD2);
-    canvas.fillRoundRect(bx, y + 3, max(6, static_cast<int>(bw * share / 100)), 10, 5, i ? C::ACCENT : C::ORANGE);
+    canvas.fillRoundRect(bx, y + 3, max(6, static_cast<int>(bw * share / max(1.0f, a.busyPct()))), 10, 5,
+                         i ? C::ACCENT : C::ORANGE);
     textf(RX + RW - 14, y, F::XS, C::TEXT, td::top_right, "%.0f%%", share);
     y += 18;
   }
   if (!a.topCount) text("No data traffic heard", RX + 14, y, F::XS, C::DIM);
-  const char *dx = a.ourBeaconPct() >= 15
+  const char *dx = a.pct(a.ourGroupUs) >= 15
+                       ? "Broadcasts (device discovery, ARP) repeated by your access points use lots of air: raise "
+                         "the multicast rate / enable IGMP snooping on the router."
+                   : a.ourBeaconPct() >= 15
                        ? "Your own access points' beacons use a lot of air: turn off unused SSIDs (guest, IoT) or "
                          "spread mesh nodes over channels."
                    : a.busyPct() >= 60  ? "The channel is congested: everything has to wait its turn, which feels like lag."
                    : a.retryPct() >= 25 ? "Many frames are re-sent: interference or devices with a weak signal."
-                   : a.topCount && a.talkerBytes && a.top[0].bytes > a.talkerBytes * 0.7f && a.busyPct() >= 25
+                   : a.topCount && a.pct(a.top[0].airtimeUs) >= 20 && a.busyPct() >= 35
                        ? "One device is using most of the airtime (a big download or stream?)."
                    : a.devicesOther > 2 * max<int>(a.devicesOurs, 3) ? "Neighbours share this channel heavily: see the quieter channel on the left."
                                                                      : "The air looks fine at the moment.";
@@ -708,7 +713,7 @@ void monitorPage() {
   constexpr int sy = ty + th + M, sh = BOTTOM - sy;
   card(M, sy, W - 2 * M, sh);
   if (!run && !m.count) {
-    para("Each minute and every event is saved to the SD card (/logs/net-YYYY-MM-DD.csv) and shown at http://" HOSTNAME
+    para("Each minute and every event is saved to the SD card (/logs/net-YYYY-MM-DD.jsonl) and shown at http://" HOSTNAME
          ".local/logs, where you can also start a run from your phone. Up to 8 hours, e.g. a whole evening.",
          M + 16, sy + 12, W - 2 * M - 32);
     return;
@@ -748,7 +753,7 @@ void monitorPage() {
     textf(c3, r0 + rs, F::XS, C::TEXT, td::top_left, "Up to %u devices busy", m.devicesMax);
     textf(c3, r0 + 2 * rs, F::XS, m.busyMax >= 60 ? C::ORANGE : C::DIM, td::top_left, "Air up to %u%% busy", m.busyMax);
   }
-  text(Log::sdReady() ? "Saved to SD: /logs/net-*.csv" : "No SD card: kept until restart", M + 12, BOTTOM - 20, F::XS,
+  text(Log::sdReady() ? "Saved to SD: /logs/net-*.jsonl" : "No SD card: kept until restart", M + 12, BOTTOM - 20, F::XS,
        C::DIM);
 }
 

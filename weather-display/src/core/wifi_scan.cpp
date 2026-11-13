@@ -119,9 +119,13 @@ void poll() {
     if (n >= 0) {
       merge(n);
       Log::printf("[wifiscan] %d access points\n", n);
-      char row[96];
-      snprintf(row, sizeof(row), "scan,%d,,,,,,,,,,,,,,,,,,,%d access points", WiFi.RSSI(), n);
-      Log::net(row);
+      JsonDocument doc;
+      doc["type"] = "scan";
+      doc["accessPoints"] = n;
+      doc["rssi"] = WiFi.RSSI();
+      doc["channel"] = WiFi.channel();
+      doc["bssid"] = WiFi.BSSIDstr();
+      Log::net(doc);
     } else {
       Log::printf("[wifiscan] scan failed (%d)\n", n);
     }

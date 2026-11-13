@@ -284,7 +284,7 @@ void sendFile() {
   }
   if (srv->hasArg("dl")) srv->sendHeader("Content-Disposition", "attachment; filename=\"" + name + "\"");
   srv->sendHeader("Cache-Control", "no-store");
-  srv->streamFile(f, name.endsWith(".csv") ? "text/csv; charset=utf-8" : "text/plain; charset=utf-8");
+  srv->streamFile(f, "text/plain; charset=utf-8");
   f.close();
 #else
   srv->send(404, "text/plain", "No SD card on this board");
@@ -390,17 +390,18 @@ void println(const char *s) {
   record(s);
 }
 
-void net(const char *row) {
+void net(JsonDocument &doc) {
   char ts[24];
   const time_t now = time(nullptr);
   tm t;
   localtime_r(&now, &t);
-  strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &t);
+  strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%S", &t);
+  doc["time"] = ts;
+  String line;
+  serializeJson(doc, line);
   Lock l;
   if (!sdOk || pendingNet.length() > PENDING_MAX) return;
-  pendingNet += ts;
-  pendingNet += ',';
-  pendingNet += row;
+  pendingNet += line;
   pendingNet += '\n';
 }
 
@@ -426,7 +427,7 @@ void flush() {
     Serial.println("[log] SD write failed - card removed? logging to RAM only");
     sdOk = false;
   }
-  if (sdOk && netRows.length()) append((String("/logs/net-") + date + ".csv").c_str(), netRows, NET_LOG_HEADER);
+  if (sdOk && netRows.length()) append((String("/logs/net-") + date + ".jsonl").c_str(), netRows, nullptr);
 #endif
 }
 

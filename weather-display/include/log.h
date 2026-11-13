@@ -10,7 +10,8 @@
  *          | File                         | Contents                                     |
  *          |------------------------------|----------------------------------------------|
  *          | /logs/app-YYYY-MM-DD.log     | Debug log, "HH:MM:SS [module] message"       |
- *          | /logs/net-YYYY-MM-DD.csv     | Wi-Fi tests, monitor minutes, scans, drops   |
+ *          | /logs/net-YYYY-MM-DD.jsonl   | One JSON object per line: Wi-Fi tests, air   |
+ *          |                              | surveys, monitor minutes and events, scans   |
  *
  *          Files older than LOG_KEEP_DAYS are deleted at start-up and at
  *          midnight. Any task may log; only flush() (UI loop) touches the card.
@@ -21,17 +22,12 @@
 #pragma once
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 
 class WebServer;
 
 /** @brief Days of log files kept on the card. */
 constexpr uint16_t LOG_KEEP_DAYS = 60;
-
-/** @brief CSV header for the network log. */
-constexpr const char *NET_LOG_HEADER =
-    "time,type,rssi,router_avg_ms,router_max_ms,router_lost,router_sent,internet_avg_ms,internet_max_ms,"
-    "internet_lost,internet_sent,spikes,dropouts,down_mbps,verdict,devices,other_devices,busy_pct,retry_pct,dns_ms,"
-    "roams,detail";
 
 namespace Log {
 
@@ -56,8 +52,12 @@ void printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void println(const char *s);
 inline void println(const String &s) { println(s.c_str()); }
 
-/** @brief Append one CSV row (without time; it is prefixed) to the network log. */
-void net(const char *row);
+/**
+ * @brief Append @p doc as one line to the network log (JSON Lines).
+ * @details A "time" field (local ISO 8601) is added; every record has a "type"
+ *          ("test", "air", "monitor", "monitor_end", "event", "scan").
+ */
+void net(JsonDocument &doc);
 
 /** @brief Write buffered lines to the card (call every few seconds from the UI loop). */
 void flush();
